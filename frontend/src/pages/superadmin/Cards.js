@@ -5,9 +5,10 @@ export default function Cards() {
   const [cards, setCards] = useState([]);
   const [owners, setOwners] = useState([]);
   const [tab, setTab] = useState('all');
+  const [usedFilter, setUsedFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ owner: '', type: 'HUMO', number: '' });
+  const [form, setForm] = useState({ owner: '', type: 'HUMO', number: '', expiryDate: '', cardHolderName: '', cardHolderPhone: '' });
   const [error, setError] = useState('');
   const [receivedInput, setReceivedInput] = useState({});
   const [copied, setCopied] = useState(null);
@@ -35,18 +36,51 @@ export default function Cards() {
     fetchOwners();
   }, [fetchCards, fetchOwners]);
 
-  const displayedCards = tab === 'all' ? cards : cards.filter((c) => c.taken);
+  const isSameDay = (a, b) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+  const matchesUsedFilter = (card) => {
+    if (usedFilter === 'all') return true;
+    if (!card.takenAt) return false;
+    const takenAt = new Date(card.takenAt);
+    const now = new Date();
+    if (usedFilter === 'today') return isSameDay(takenAt, now);
+    if (usedFilter === 'yesterday') {
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      return isSameDay(takenAt, yesterday);
+    }
+    if (usedFilter === 'week') {
+      const weekAgo = new Date(now);
+      weekAgo.setDate(now.getDate() - 7);
+      return takenAt >= weekAgo && takenAt <= now;
+    }
+    if (usedFilter === 'month') {
+      return takenAt.getFullYear() === now.getFullYear() && takenAt.getMonth() === now.getMonth();
+    }
+    return true;
+  };
+
+  const usedCards = cards.filter((c) => c.taken);
+  const displayedCards = tab === 'all' ? cards : usedCards.filter(matchesUsedFilter);
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ owner: owners[0]?._id || '', type: 'HUMO', number: '' });
+    setForm({ owner: owners[0]?._id || '', type: 'HUMO', number: '', expiryDate: '', cardHolderName: '', cardHolderPhone: '' });
     setError('');
     setShowModal(true);
   };
 
   const openEdit = (card) => {
     setEditing(card);
-    setForm({ owner: card.owner._id, type: card.type, number: card.number });
+    setForm({
+      owner: card.owner._id,
+      type: card.type,
+      number: card.number,
+      expiryDate: card.expiryDate || '',
+      cardHolderName: card.cardHolderName || '',
+      cardHolderPhone: card.cardHolderPhone || '',
+    });
     setError('');
     setShowModal(true);
   };
@@ -138,9 +172,33 @@ export default function Cards() {
               : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
           }`}
         >
-          Ishlatilgan kartalar ({cards.filter((c) => c.taken).length})
+          Ishlatilgan kartalar ({usedCards.length})
         </button>
       </div>
+
+      {tab === 'used' && (
+        <div className="flex gap-2 mb-4">
+          {[
+            { key: 'all', label: 'Barchasi' },
+            { key: 'today', label: 'Bugun' },
+            { key: 'yesterday', label: 'Kecha' },
+            { key: 'week', label: 'Oxirgi 7 kun' },
+            { key: 'month', label: 'Shu oy' },
+          ].map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setUsedFilter(f.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                usedFilter === f.key
+                  ? 'bg-gray-800 text-white'
+                  : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow overflow-x-auto">
         <table className="w-full text-sm">
@@ -150,6 +208,9 @@ export default function Cards() {
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Ega</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Tur</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Karta raqami</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Amal qilish muddati</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Karta egasi (F.I.Sh.)</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Telefon raqami</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Holat</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Qabul qilingan summa</th>
               {tab === 'used' && (
@@ -194,6 +255,9 @@ export default function Cards() {
                     </button>
                   </div>
                 </td>
+                <td className="px-4 py-3 font-mono text-gray-700 whitespace-nowrap">{card.expiryDate}</td>
+                <td className="px-4 py-3 text-gray-700">{card.cardHolderName}</td>
+                <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{card.cardHolderPhone}</td>
                 <td className="px-4 py-3">
                   <span
                     className={`px-2 py-0.5 rounded text-xs font-semibold ${
@@ -265,7 +329,7 @@ export default function Cards() {
             ))}
             {displayedCards.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-6 py-10 text-center text-gray-400 text-sm">
+                <td colSpan={13} className="px-6 py-10 text-center text-gray-400 text-sm">
                   Kartalar topilmadi
                 </td>
               </tr>
@@ -317,6 +381,40 @@ export default function Cards() {
                   onChange={(e) => setForm({ ...form, number: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="8600 0000 0000 0000"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amal qilish muddati</label>
+                <input
+                  type="text"
+                  value={form.expiryDate}
+                  onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="OO/YY"
+                  maxLength={5}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Karta egasining F.I.Sh.</label>
+                <input
+                  type="text"
+                  value={form.cardHolderName}
+                  onChange={(e) => setForm({ ...form, cardHolderName: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Familiya Ism Sharif"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Karta egasining telefon raqami</label>
+                <input
+                  type="tel"
+                  value={form.cardHolderPhone}
+                  onChange={(e) => setForm({ ...form, cardHolderPhone: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="+998 90 123 45 67"
                   required
                 />
               </div>

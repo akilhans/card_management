@@ -33,9 +33,13 @@ export default function CardList({ cards, onTake, onCopy, copied }) {
             </span>
           </div>
 
-          <p className="font-mono text-base font-bold text-gray-800 mb-4 tracking-widest">
+          <p className="font-mono text-base font-bold text-gray-800 mb-1 tracking-widest">
             {card.number}
           </p>
+          <div className="flex items-center justify-between mb-4 text-xs text-gray-500">
+            <span>{card.cardHolderName}</span>
+            <span className="font-mono">{card.expiryDate}</span>
+          </div>
 
           <div className="flex gap-2">
             <button

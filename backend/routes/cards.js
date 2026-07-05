@@ -27,10 +27,10 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/', auth, superAdmin, async (req, res) => {
   try {
-    const { owner, type, number } = req.body;
-    if (!owner || !type || !number)
-      return res.status(400).json({ message: 'Ega, tur va raqam kiritilishi shart' });
-    const card = await Card.create({ owner, type, number });
+    const { owner, type, number, expiryDate, cardHolderName, cardHolderPhone } = req.body;
+    if (!owner || !type || !number || !expiryDate || !cardHolderName || !cardHolderPhone)
+      return res.status(400).json({ message: 'Ega, tur, raqam, amal qilish muddati, egasining F.I.Sh. va telefon raqami kiritilishi shart' });
+    const card = await Card.create({ owner, type, number, expiryDate, cardHolderName, cardHolderPhone });
     await card.populate('owner', 'name');
     res.status(201).json(card);
   } catch (err) {
@@ -40,10 +40,10 @@ router.post('/', auth, superAdmin, async (req, res) => {
 
 router.put('/:id', auth, superAdmin, async (req, res) => {
   try {
-    const { owner, type, number } = req.body;
+    const { owner, type, number, expiryDate, cardHolderName, cardHolderPhone } = req.body;
     const card = await Card.findByIdAndUpdate(
       req.params.id,
-      { owner, type, number },
+      { owner, type, number, expiryDate, cardHolderName, cardHolderPhone },
       { new: true }
     ).populate('owner', 'name').populate('takenBy', 'username');
     if (!card) return res.status(404).json({ message: 'Karta topilmadi' });
