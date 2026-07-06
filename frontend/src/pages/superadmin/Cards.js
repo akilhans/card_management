@@ -11,22 +11,25 @@ const emptyForm = {
   cardHolderPhone: '',
 };
 
-const isSameDay = (a, b) =>
-  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const maskCardNumber = (number) => {
+  if (!number) return '';
+  return number.replace(/\d(?=\d{4})/g, '*');
+};
+
+const formatOwnerKey = (card) => `${card.cardHolderName.trim()}||${card.cardHolderPhone.trim()}||${card.type}`;
 
 export default function Cards() {
   const [cards, setCards] = useState([]);
   const [admins, setAdmins] = useState([]);
-  const [selectedAdmin, setSelectedAdmin] = useState('all');
-  const [tab, setTab] = useState('all');
-  const [usedFilter, setUsedFilter] = useState('all');
-  const [customDate, setCustomDate] = useState('');
+  const [selectedGroupKey, setSelectedGroupKey] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
   const [receivedInput, setReceivedInput] = useState({});
   const [copied, setCopied] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   const fetchAdmins = useCallback(async () => {
     try {
@@ -48,64 +51,62 @@ export default function Cards() {
 
   useEffect(() => {
     fetchAdmins();
-  }, [fetchAdmins]);
-
-  useEffect(() => {
     fetchCards();
-  }, [fetchCards]);
+  }, [fetchAdmins, fetchCards]);
 
-  const matchesUsedFilter = (card) => {
-    if (!card.takenAt) return false;
-    const takenAt = new Date(card.takenAt);
-    const now = new Date();
-
-    if (usedFilter === 'all') return true;
-    if (usedFilter === 'today') return isSameDay(takenAt, now);
-    if (usedFilter === 'yesterday') {
-      const yesterday = new Date(now);
-      yesterday.setDate(now.getDate() - 1);
-      return isSameDay(takenAt, yesterday);
-    }
-    if (usedFilter === 'month') {
-      return takenAt.getFullYear() === now.getFullYear() && takenAt.getMonth() === now.getMonth();
-    }
-    if (usedFilter === 'custom' && customDate) {
-      const picked = new Date(customDate);
-      return isSameDay(takenAt, picked);
-    }
-    return true;
-  };
-
-  const adminFilteredCards = useMemo(() => {
-    if (selectedAdmin === 'all') return cards;
-    return cards.filter((c) => c.assignedAdmin?._id === selectedAdmin);
-  }, [cards, selectedAdmin]);
-
-  const usedCards = adminFilteredCards.filter((c) => c.taken);
-  const displayedCards = tab === 'all' ? adminFilteredCards : usedCards.filter(matchesUsedFilter);
-
-  const adminCardCounts = useMemo(() => {
-    const counts = { all: cards.length };
-    admins.forEach((admin) => {
-      counts[admin._id] = cards.filter((c) => c.assignedAdmin?._id === admin._id).length;
+  const filteredCards = useMemo(() => {
+    return cards.filter((card) => {
+      if (statusFilter === 'limit' && card.status !== 'LIMIT_REACHED') return false;
+      const query = searchQuery.trim().toLowerCase();
+      if (!query) return true;
+      return (
+        card.cardHolderName.toLowerCase().includes(query) ||
+        card.cardHolderPhone.toLowerCase().includes(query) ||
+        card.number.toLowerCase().includes(query)
+      );
     });
-    return counts;
-  }, [cards, admins]);
+  }, [cards, searchQuery, statusFilter]);
 
-  const openCreate = () => {
+  const groupedOwners = useMemo(() => {
+    const groups = {};
+    filteredCards.forEach((card) => {
+      const key = formatOwnerKey(card);
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          cardHolderName: card.cardHolderName,
+          cardHolderPhone: card.cardHolderPhone,
+          type: card.type,
+          cards: [],
+        };
+      }
+      groups[key].cards.push(card);
+    });
+    return Object.values(groups).sort((a, b) => {
+      if (a.cardHolderName.toLowerCase() < b.cardHolderName.toLowerCase()) return -1;
+      if (a.cardHolderName.toLowerCase() > b.cardHolderName.toLowerCase()) return 1;
+      if (a.type < b.type) return -1;
+      if (a.type > b.type) return 1;
+      return 0;
+    });
+  }, [filteredCards]);
+
+  const selectedGroup = useMemo(
+    () => groupedOwners.find((group) => group.key === selectedGroupKey) || null,
+    [groupedOwners, selectedGroupKey]
+  );
+
+  const handleOpenCreate = () => {
     setEditing(null);
-    setForm({
-      ...emptyForm,
-      assignedAdmin: selectedAdmin !== 'all' ? selectedAdmin : admins[0]?._id || '',
-    });
+    setForm({ ...emptyForm });
     setError('');
     setShowModal(true);
   };
 
-  const openEdit = (card) => {
+  const handleOpenEdit = (card) => {
     setEditing(card);
     setForm({
-      assignedAdmin: card.assignedAdmin?._id || card.assignedAdmin,
+      assignedAdmin: card.assignedAdmin?._id || '',
       type: card.type,
       number: card.number,
       expiryDate: card.expiryDate || '',
@@ -120,13 +121,18 @@ export default function Cards() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    const payload = {
+      ...form,
+      assignedAdmin: form.assignedAdmin || null,
+    };
     try {
       if (editing) {
-        await api.put(`/cards/${editing._id}`, form);
+        await api.put(`/cards/${editing._id}`, payload);
       } else {
-        await api.post('/cards', form);
+        await api.post('/cards', payload);
       }
       setShowModal(false);
+      setSelectedGroupKey(null);
       fetchCards();
     } catch (err) {
       setError(err.response?.data?.message || 'Xatolik yuz berdi');
@@ -173,252 +179,212 @@ export default function Cards() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const colSpan = tab === 'used' ? 14 : 12;
+  const ownerCount = groupedOwners.length;
+  const unassignedCount = cards.filter((card) => !card.assignedAdmin).length;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Kartalar</h1>
-        <button
-          onClick={openCreate}
-          disabled={admins.length === 0}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        >
-          + Karta qo&apos;shish
-        </button>
-      </div>
-
-      {admins.length === 0 && (
-        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
-          Avval admin yarating, keyin kartalarni tayinlang.
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Kartalar</h1>
+          <p className="text-sm text-gray-600 mt-1">
+            Kartalar egalar bo‘yicha guruhlangan. Sahifada karta raqamlari yashirilgan.
+          </p>
         </div>
-      )}
-
-      <div className="mb-5">
-        <p className="text-sm font-medium text-gray-600 mb-2">Admin bo&apos;yicha ko&apos;rish</p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <button
-            onClick={() => setSelectedAdmin('all')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              selectedAdmin === 'all'
-                ? 'bg-indigo-600 text-white'
-                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-            }`}
+            onClick={handleOpenCreate}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           >
-            Barcha adminlar ({adminCardCounts.all || 0})
+            + Karta qo‘shish
           </button>
-          {admins.map((admin) => (
-            <button
-              key={admin._id}
-              onClick={() => setSelectedAdmin(admin._id)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                selectedAdmin === admin._id
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              {admin.username} ({adminCardCounts[admin._id] || 0})
-            </button>
-          ))}
+          <button
+            onClick={() => setSelectedGroupKey(null)}
+            className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            Guruhlashni yangilash
+          </button>
         </div>
       </div>
 
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setTab('all')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            tab === 'all'
-              ? 'bg-blue-600 text-white'
-              : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          Barcha kartalar ({adminFilteredCards.length})
-        </button>
-        <button
-          onClick={() => setTab('used')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            tab === 'used'
-              ? 'bg-blue-600 text-white'
-              : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          Ishlatilgan kartalar ({usedCards.length})
-        </button>
-      </div>
-
-      {tab === 'used' && (
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          {[
-            { key: 'today', label: 'Bugun' },
-            { key: 'yesterday', label: 'Kecha' },
-            { key: 'month', label: 'Shu oy' },
-            { key: 'all', label: 'Barchasi' },
-            { key: 'custom', label: 'Filter' },
-          ].map((f) => (
+      <div className="grid gap-4 md:grid-cols-3 mb-6">
+        <div className="md:col-span-2 bg-white rounded-xl shadow p-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Qidiruv</label>
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Karta raqami, egasi yoki telefon..."
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div className="bg-white rounded-xl shadow p-4">
+          <p className="text-sm font-medium text-gray-700 mb-3">Filterlar</p>
+          <div className="flex flex-wrap gap-2">
             <button
-              key={f.key}
-              onClick={() => setUsedFilter(f.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                usedFilter === f.key
-                  ? 'bg-gray-800 text-white'
-                  : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+              onClick={() => setStatusFilter('all')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                statusFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
               }`}
             >
-              {f.label}
+              Barchasi
             </button>
-          ))}
-          {usedFilter === 'custom' && (
-            <input
-              type="date"
-              value={customDate}
-              onChange={(e) => setCustomDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <button
+              onClick={() => setStatusFilter('limit')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                statusFilter === 'limit' ? 'bg-red-600 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              Limitga yetganlar
+            </button>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl shadow p-4">
+          <p className="text-sm font-medium text-gray-700 mb-3">Statistika</p>
+          <div className="space-y-2 text-sm text-gray-600">
+            <div>Barcha kartalar: <span className="font-semibold text-gray-900">{cards.length}</span></div>
+            <div>Guruhlar: <span className="font-semibold text-gray-900">{ownerCount}</span></div>
+            <div>Adminsiz kartalar: <span className="font-semibold text-gray-900">{unassignedCount}</span></div>
+          </div>
+        </div>
+      </div>
+
+      {!selectedGroup && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">
+          {groupedOwners.length === 0 ? (
+            <div className="bg-white rounded-xl shadow p-8 text-center text-gray-500">
+              Qidiruv yoki filter bo‘yicha mos keladigan hech qanday karta topilmadi.
+            </div>
+          ) : (
+            groupedOwners.map((group) => (
+              <button
+                key={group.key}
+                onClick={() => setSelectedGroupKey(group.key)}
+                className="text-left bg-white rounded-2xl shadow-sm border border-gray-200 p-5 hover:shadow-lg transition-shadow"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-lg font-semibold text-gray-900">{group.cardHolderName}</p>
+                    <p className="text-xs text-gray-500">{group.cardHolderPhone}</p>
+                  </div>
+                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                    group.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {group.type}
+                  </span>
+                </div>
+                <div className="text-sm text-gray-600">
+                  {group.cards.length} ta karta
+                </div>
+              </button>
+            ))
           )}
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Tur</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">F.I.Sh.</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Holat</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Qabul qilingan</th>
-              {tab === 'used' && (
-                <>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Kim olgan</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Qachon olingan</th>
-                </>
-              )}
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {displayedCards.map((card, i) => (
-              <tr
-                key={card._id}
-                className={`transition-colors ${
-                  card.status === 'LIMIT_REACHED' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
-                }`}
+      {selectedGroup && (
+        <div className="space-y-4 mb-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white rounded-xl shadow p-5">
+            <div>
+              <p className="text-sm text-gray-500">Tanlangan guruh</p>
+              <h2 className="text-xl font-semibold text-gray-900">{selectedGroup.cardHolderName} — {selectedGroup.type}</h2>
+              <p className="text-sm text-gray-500">{selectedGroup.cardHolderPhone}</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedGroupKey(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
               >
-                <td className="px-4 py-3 text-gray-400">{i + 1}</td>
-                <td className="px-4 py-3 font-medium text-indigo-700">{card.assignedAdmin?.username}</td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                      card.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                Orqaga
+              </button>
+              <button
+                onClick={() => setSearchQuery('')}
+                className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 transition-colors"
+              >
+                Qidiruvni tozalash
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Karta</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Holat</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Qabul qilingan</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {selectedGroup.cards.map((card, index) => (
+                  <tr
+                    key={card._id}
+                    className={`transition-colors ${
+                      card.status === 'LIMIT_REACHED' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
                     }`}
                   >
-                    {card.type}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-gray-700">{card.bankName}</td>
-                <td className="px-4 py-3 font-mono">
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-800">{card.number}</span>
-                    <button
-                      onClick={() => copyNumber(card.number, card._id)}
-                      title="Karta raqamini nusxalash"
-                      className="text-gray-400 hover:text-gray-700 transition-colors text-base"
-                    >
-                      {copied === card._id ? '✓' : '⧉'}
-                    </button>
-                  </div>
-                </td>
-                <td className="px-4 py-3 font-mono text-gray-700 whitespace-nowrap">{card.expiryDate}</td>
-                <td className="px-4 py-3 text-gray-700">{card.cardHolderName}</td>
-                <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{card.cardHolderPhone}</td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                      card.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                    }`}
-                  >
-                    {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-700 font-medium">{card.receivedAmount.toLocaleString()}</span>
-                    <input
-                      type="number"
-                      value={receivedInput[card._id] || ''}
-                      onChange={(e) =>
-                        setReceivedInput((prev) => ({ ...prev, [card._id]: e.target.value }))
-                      }
-                      onKeyDown={(e) => e.key === 'Enter' && handleSetReceived(card)}
-                      placeholder="Belgilash"
-                      min="0"
-                      className="border border-gray-300 rounded px-2 py-0.5 w-24 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                    <button
-                      onClick={() => handleSetReceived(card)}
-                      className="bg-gray-700 hover:bg-gray-900 text-white text-xs px-2 py-0.5 rounded transition-colors"
-                    >
-                      Qo&apos;yish
-                    </button>
-                  </div>
-                </td>
-                {tab === 'used' && (
-                  <>
-                    <td className="px-4 py-3 text-gray-600">{card.takenBy?.username || '—'}</td>
-                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                      {card.takenAt ? new Date(card.takenAt).toLocaleString('uz-UZ') : '—'}
+                    <td className="px-4 py-3 text-gray-400">{index + 1}</td>
+                    <td className="px-4 py-3 text-gray-700">{card.bankName}</td>
+                    <td className="px-4 py-3 font-mono text-gray-800">{maskCardNumber(card.number)}</td>
+                    <td className="px-4 py-3 font-mono text-gray-700 whitespace-nowrap">{card.expiryDate}</td>
+                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{card.cardHolderPhone}</td>
+                    <td className="px-4 py-3 text-indigo-700">{card.assignedAdmin?.username || 'Hech kimga tayinlanmagan'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                        card.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
+                      </span>
                     </td>
-                  </>
-                )}
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-2">
-                    {card.status === 'LIMIT_REACHED' && (
+                    <td className="px-4 py-3 text-gray-700">{card.receivedAmount.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right space-x-2">
+                      {card.status === 'LIMIT_REACHED' && (
+                        <button
+                          onClick={() => handleReactivate(card._id)}
+                          className="text-xs font-medium border border-green-600 text-green-600 hover:bg-green-600 hover:text-white px-2 py-1 rounded transition-colors"
+                        >
+                          Qayta faollashtirish
+                        </button>
+                      )}
                       <button
-                        onClick={() => handleReactivate(card._id)}
-                        className="text-xs font-medium border border-green-600 text-green-600 hover:bg-green-600 hover:text-white px-2 py-0.5 rounded transition-colors"
-                      >
-                        Qayta faollashtirish
-                      </button>
-                    )}
-                    {!card.taken && (
-                      <button
-                        onClick={() => openEdit(card)}
+                        onClick={() => handleOpenEdit(card)}
                         className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                       >
                         Tahrirlash
                       </button>
-                    )}
-                    <button
-                      onClick={() => handleDelete(card._id)}
-                      className="text-red-600 hover:text-red-800 text-sm font-medium"
-                    >
-                      O&apos;chirish
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {displayedCards.length === 0 && (
-              <tr>
-                <td colSpan={colSpan} className="px-6 py-10 text-center text-gray-400 text-sm">
-                  Kartalar topilmadi
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                      <button
+                        onClick={() => handleDelete(card._id)}
+                        className="text-red-600 hover:text-red-800 text-sm font-medium"
+                      >
+                        O‘chirish
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {selectedGroup.cards.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-10 text-center text-gray-400 text-sm">
+                      Bu guruhda hech qanday karta yo‘q.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-gray-800 mb-4">
-              {editing ? 'Kartani tahrirlash' : 'Karta qo\'shish'}
+              {editing ? 'Kartani tahrirlash' : 'Karta qo‘shish'}
             </h2>
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg mb-4 text-sm">{error}</div>
@@ -430,9 +396,8 @@ export default function Cards() {
                   value={form.assignedAdmin}
                   onChange={(e) => setForm({ ...form, assignedAdmin: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
                 >
-                  <option value="">Admin tanlang...</option>
+                  <option value="">Hech kimga tayinlanmagan</option>
                   {admins.map((a) => (
                     <option key={a._id} value={a._id}>{a.username}</option>
                   ))}
@@ -517,7 +482,7 @@ export default function Cards() {
                   type="submit"
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
                 >
-                  {editing ? 'O\'zgarishlarni saqlash' : 'Karta qo\'shish'}
+                  {editing ? 'O‘zgarishlarni saqlash' : 'Karta qo‘shish'}
                 </button>
               </div>
             </form>
