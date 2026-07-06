@@ -27,9 +27,17 @@ router.get('/', auth, async (req, res) => {
 router.post('/', auth, superAdmin, async (req, res) => {
   try {
     const { assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone } = req.body;
-    if (!assignedAdmin || !type || !number || !expiryDate || !bankName || !cardHolderName || !cardHolderPhone)
-      return res.status(400).json({ message: 'Admin, tur, raqam, amal qilish muddati, bank nomi, F.I.Sh. va telefon raqami kiritilishi shart' });
-    const card = await Card.create({ assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone });
+    if (!type || !number || !expiryDate || !bankName || !cardHolderName || !cardHolderPhone)
+      return res.status(400).json({ message: 'Tur, raqam, amal qilish muddati, bank nomi, F.I.Sh. va telefon raqami kiritilishi shart' });
+    const card = await Card.create({
+      assignedAdmin: assignedAdmin || null,
+      type,
+      number,
+      expiryDate,
+      bankName,
+      cardHolderName,
+      cardHolderPhone,
+    });
     const populated = await populateCard(Card.findById(card._id));
     res.status(201).json(populated);
   } catch (err) {
@@ -43,7 +51,15 @@ router.put('/:id', auth, superAdmin, async (req, res) => {
     const card = await populateCard(
       Card.findByIdAndUpdate(
         req.params.id,
-        { assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone },
+        {
+          assignedAdmin: assignedAdmin || null,
+          type,
+          number,
+          expiryDate,
+          bankName,
+          cardHolderName,
+          cardHolderPhone,
+        },
         { new: true }
       )
     );
