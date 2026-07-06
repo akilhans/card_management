@@ -26,8 +26,6 @@ export default function Cards() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
-  const [receivedInput, setReceivedInput] = useState({});
-  const [copied, setCopied] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -149,20 +147,6 @@ export default function Cards() {
     }
   };
 
-  const handleSetReceived = async (card) => {
-    const val = receivedInput[card._id];
-    if (val === undefined || val === '') return;
-    const amount = parseFloat(val);
-    if (isNaN(amount)) return;
-    try {
-      await api.patch(`/cards/${card._id}/received`, { amount });
-      setReceivedInput((prev) => ({ ...prev, [card._id]: '' }));
-      fetchCards();
-    } catch (err) {
-      alert(err.response?.data?.message || 'Summani yangilashda xatolik');
-    }
-  };
-
   const handleReactivate = async (id) => {
     if (!window.confirm('Bu kartani qayta faollashtirishni xohlaysizmi? Qabul qilingan summa nolga tushiriladi.')) return;
     try {
@@ -171,12 +155,6 @@ export default function Cards() {
     } catch (err) {
       console.error(err);
     }
-  };
-
-  const copyNumber = (number, id) => {
-    navigator.clipboard.writeText(number);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
   };
 
   const ownerCount = groupedOwners.length;
