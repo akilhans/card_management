@@ -16,7 +16,12 @@ const maskCardNumber = (number) => {
   return number.replace(/\d(?=\d{4})/g, '*');
 };
 
-const formatOwnerKey = (card) => `${card.cardHolderName.trim()}||${card.cardHolderPhone.trim()}||${card.type}`;
+const formatOwnerKey = (card) => {
+  const name = card.cardHolderName ? String(card.cardHolderName).trim() : 'No name';
+  const phone = card.cardHolderPhone ? String(card.cardHolderPhone).trim() : 'No phone';
+  const type = card.type || 'UNKNOWN';
+  return `${name}||${phone}||${type}`;
+};
 
 export default function Cards() {
   const [cards, setCards] = useState([]);
@@ -58,9 +63,9 @@ export default function Cards() {
       const query = searchQuery.trim().toLowerCase();
       if (!query) return true;
       return (
-        card.cardHolderName.toLowerCase().includes(query) ||
-        card.cardHolderPhone.toLowerCase().includes(query) ||
-        card.number.toLowerCase().includes(query)
+        String(card.cardHolderName || '').toLowerCase().includes(query) ||
+        String(card.cardHolderPhone || '').toLowerCase().includes(query) ||
+        String(card.number || '').toLowerCase().includes(query)
       );
     });
   }, [cards, searchQuery, statusFilter]);
