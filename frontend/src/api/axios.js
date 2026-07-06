@@ -1,9 +1,8 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'https://card-management-c11w.vercel.app/api',
+  baseURL: 'easygoing-cat-production-eeff.up.railway.app/api',
 });
-
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
