@@ -1,17 +1,41 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../../api/axios';
+
+const emptyForm = {
+  assignedAdmin: '',
+  type: 'HUMO',
+  number: '',
+  expiryDate: '',
+  bankName: '',
+  cardHolderName: '',
+  cardHolderPhone: '',
+};
+
+const isSameDay = (a, b) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 export default function Cards() {
   const [cards, setCards] = useState([]);
-  const [owners, setOwners] = useState([]);
+  const [admins, setAdmins] = useState([]);
+  const [selectedAdmin, setSelectedAdmin] = useState('all');
   const [tab, setTab] = useState('all');
   const [usedFilter, setUsedFilter] = useState('all');
+  const [customDate, setCustomDate] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ owner: '', type: 'HUMO', number: '', expiryDate: '', cardHolderName: '', cardHolderPhone: '' });
+  const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
   const [receivedInput, setReceivedInput] = useState({});
   const [copied, setCopied] = useState(null);
+
+  const fetchAdmins = useCallback(async () => {
+    try {
+      const res = await api.get('/users');
+      setAdmins(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
 
   const fetchCards = useCallback(async () => {
     try {
@@ -22,51 +46,58 @@ export default function Cards() {
     }
   }, []);
 
-  const fetchOwners = useCallback(async () => {
-    try {
-      const res = await api.get('/owners');
-      setOwners(res.data);
-    } catch (err) {
-      console.error(err);
-    }
-  }, []);
+  useEffect(() => {
+    fetchAdmins();
+  }, [fetchAdmins]);
 
   useEffect(() => {
     fetchCards();
-    fetchOwners();
-  }, [fetchCards, fetchOwners]);
-
-  const isSameDay = (a, b) =>
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }, [fetchCards]);
 
   const matchesUsedFilter = (card) => {
-    if (usedFilter === 'all') return true;
     if (!card.takenAt) return false;
     const takenAt = new Date(card.takenAt);
     const now = new Date();
+
+    if (usedFilter === 'all') return true;
     if (usedFilter === 'today') return isSameDay(takenAt, now);
     if (usedFilter === 'yesterday') {
       const yesterday = new Date(now);
       yesterday.setDate(now.getDate() - 1);
       return isSameDay(takenAt, yesterday);
     }
-    if (usedFilter === 'week') {
-      const weekAgo = new Date(now);
-      weekAgo.setDate(now.getDate() - 7);
-      return takenAt >= weekAgo && takenAt <= now;
-    }
     if (usedFilter === 'month') {
       return takenAt.getFullYear() === now.getFullYear() && takenAt.getMonth() === now.getMonth();
+    }
+    if (usedFilter === 'custom' && customDate) {
+      const picked = new Date(customDate);
+      return isSameDay(takenAt, picked);
     }
     return true;
   };
 
-  const usedCards = cards.filter((c) => c.taken);
-  const displayedCards = tab === 'all' ? cards : usedCards.filter(matchesUsedFilter);
+  const adminFilteredCards = useMemo(() => {
+    if (selectedAdmin === 'all') return cards;
+    return cards.filter((c) => c.assignedAdmin?._id === selectedAdmin);
+  }, [cards, selectedAdmin]);
+
+  const usedCards = adminFilteredCards.filter((c) => c.taken);
+  const displayedCards = tab === 'all' ? adminFilteredCards : usedCards.filter(matchesUsedFilter);
+
+  const adminCardCounts = useMemo(() => {
+    const counts = { all: cards.length };
+    admins.forEach((admin) => {
+      counts[admin._id] = cards.filter((c) => c.assignedAdmin?._id === admin._id).length;
+    });
+    return counts;
+  }, [cards, admins]);
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ owner: owners[0]?._id || '', type: 'HUMO', number: '', expiryDate: '', cardHolderName: '', cardHolderPhone: '' });
+    setForm({
+      ...emptyForm,
+      assignedAdmin: selectedAdmin !== 'all' ? selectedAdmin : admins[0]?._id || '',
+    });
     setError('');
     setShowModal(true);
   };
@@ -74,10 +105,11 @@ export default function Cards() {
   const openEdit = (card) => {
     setEditing(card);
     setForm({
-      owner: card.owner._id,
+      assignedAdmin: card.assignedAdmin?._id || card.assignedAdmin,
       type: card.type,
       number: card.number,
       expiryDate: card.expiryDate || '',
+      bankName: card.bankName || '',
       cardHolderName: card.cardHolderName || '',
       cardHolderPhone: card.cardHolderPhone || '',
     });
@@ -141,16 +173,54 @@ export default function Cards() {
     setTimeout(() => setCopied(null), 2000);
   };
 
+  const colSpan = tab === 'used' ? 14 : 12;
+
   return (
-    <div className="p-6">
+    <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Kartalar</h1>
         <button
           onClick={openCreate}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          disabled={admins.length === 0}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
         >
-          + Karta qo'shish
+          + Karta qo&apos;shish
         </button>
+      </div>
+
+      {admins.length === 0 && (
+        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+          Avval admin yarating, keyin kartalarni tayinlang.
+        </div>
+      )}
+
+      <div className="mb-5">
+        <p className="text-sm font-medium text-gray-600 mb-2">Admin bo&apos;yicha ko&apos;rish</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setSelectedAdmin('all')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              selectedAdmin === 'all'
+                ? 'bg-indigo-600 text-white'
+                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Barcha adminlar ({adminCardCounts.all || 0})
+          </button>
+          {admins.map((admin) => (
+            <button
+              key={admin._id}
+              onClick={() => setSelectedAdmin(admin._id)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                selectedAdmin === admin._id
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {admin.username} ({adminCardCounts[admin._id] || 0})
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-2 mb-4">
@@ -162,7 +232,7 @@ export default function Cards() {
               : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'
           }`}
         >
-          Barcha kartalar ({cards.length})
+          Barcha kartalar ({adminFilteredCards.length})
         </button>
         <button
           onClick={() => setTab('used')}
@@ -177,13 +247,13 @@ export default function Cards() {
       </div>
 
       {tab === 'used' && (
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
           {[
-            { key: 'all', label: 'Barchasi' },
             { key: 'today', label: 'Bugun' },
             { key: 'yesterday', label: 'Kecha' },
-            { key: 'week', label: 'Oxirgi 7 kun' },
             { key: 'month', label: 'Shu oy' },
+            { key: 'all', label: 'Barchasi' },
+            { key: 'custom', label: 'Filter' },
           ].map((f) => (
             <button
               key={f.key}
@@ -197,6 +267,14 @@ export default function Cards() {
               {f.label}
             </button>
           ))}
+          {usedFilter === 'custom' && (
+            <input
+              type="date"
+              value={customDate}
+              onChange={(e) => setCustomDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          )}
         </div>
       )}
 
@@ -204,22 +282,23 @@ export default function Cards() {
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">#</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Ega</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Tur</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Karta raqami</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Amal qilish muddati</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Karta egasi (F.I.Sh.)</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Telefon raqami</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Holat</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Qabul qilingan summa</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Tur</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">F.I.Sh.</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Holat</th>
+              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Qabul qilingan</th>
               {tab === 'used' && (
                 <>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Kim olgan</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Qachon olingan</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Kim olgan</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Qachon olingan</th>
                 </>
               )}
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Amallar</th>
+              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -231,18 +310,17 @@ export default function Cards() {
                 }`}
               >
                 <td className="px-4 py-3 text-gray-400">{i + 1}</td>
-                <td className="px-4 py-3 font-medium text-gray-800">{card.owner?.name}</td>
+                <td className="px-4 py-3 font-medium text-indigo-700">{card.assignedAdmin?.username}</td>
                 <td className="px-4 py-3">
                   <span
                     className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                      card.type === 'HUMO'
-                        ? 'bg-purple-100 text-purple-700'
-                        : 'bg-blue-100 text-blue-700'
+                      card.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
                     }`}
                   >
                     {card.type}
                   </span>
                 </td>
+                <td className="px-4 py-3 text-gray-700">{card.bankName}</td>
                 <td className="px-4 py-3 font-mono">
                   <div className="flex items-center gap-2">
                     <span className="text-gray-800">{card.number}</span>
@@ -261,9 +339,7 @@ export default function Cards() {
                 <td className="px-4 py-3">
                   <span
                     className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                      card.status === 'ACTIVE'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-red-100 text-red-700'
+                      card.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                     }`}
                   >
                     {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
@@ -287,7 +363,7 @@ export default function Cards() {
                       onClick={() => handleSetReceived(card)}
                       className="bg-gray-700 hover:bg-gray-900 text-white text-xs px-2 py-0.5 rounded transition-colors"
                     >
-                      Qo'yish
+                      Qo&apos;yish
                     </button>
                   </div>
                 </td>
@@ -321,7 +397,7 @@ export default function Cards() {
                       onClick={() => handleDelete(card._id)}
                       className="text-red-600 hover:text-red-800 text-sm font-medium"
                     >
-                      O'chirish
+                      O&apos;chirish
                     </button>
                   </div>
                 </td>
@@ -329,7 +405,7 @@ export default function Cards() {
             ))}
             {displayedCards.length === 0 && (
               <tr>
-                <td colSpan={13} className="px-6 py-10 text-center text-gray-400 text-sm">
+                <td colSpan={colSpan} className="px-6 py-10 text-center text-gray-400 text-sm">
                   Kartalar topilmadi
                 </td>
               </tr>
@@ -340,7 +416,7 @@ export default function Cards() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-gray-800 mb-4">
               {editing ? 'Kartani tahrirlash' : 'Karta qo\'shish'}
             </h2>
@@ -349,16 +425,16 @@ export default function Cards() {
             )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ega</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tayinlangan admin</label>
                 <select
-                  value={form.owner}
-                  onChange={(e) => setForm({ ...form, owner: e.target.value })}
+                  value={form.assignedAdmin}
+                  onChange={(e) => setForm({ ...form, assignedAdmin: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 >
-                  <option value="">Ega tanlang...</option>
-                  {owners.map((o) => (
-                    <option key={o._id} value={o._id}>{o.name}</option>
+                  <option value="">Admin tanlang...</option>
+                  {admins.map((a) => (
+                    <option key={a._id} value={a._id}>{a.username}</option>
                   ))}
                 </select>
               </div>
@@ -372,6 +448,17 @@ export default function Cards() {
                   <option value="HUMO">HUMO</option>
                   <option value="UZCARD">UZCARD</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Karta olingan bank nomi</label>
+                <input
+                  type="text"
+                  value={form.bankName}
+                  onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Masalan: Kapitalbank"
+                  required
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Karta raqami</label>
@@ -408,7 +495,7 @@ export default function Cards() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Karta egasining telefon raqami</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Telefon raqami</label>
                 <input
                   type="tel"
                   value={form.cardHolderPhone}

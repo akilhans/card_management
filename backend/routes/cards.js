@@ -1,24 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const Card = require('../models/Card');
-const Assignment = require('../models/Assignment');
 const Setting = require('../models/Setting');
 const { auth, superAdmin } = require('../middleware/auth');
+
+const populateCard = (query) =>
+  query.populate('assignedAdmin', 'username').populate('takenBy', 'username');
 
 router.get('/', auth, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
-      const cards = await Card.find()
-        .populate('owner', 'name')
-        .populate('takenBy', 'username')
-        .sort({ createdAt: -1 });
+      const filter = {};
+      if (req.query.admin) filter.assignedAdmin = req.query.admin;
+      const cards = await populateCard(Card.find(filter)).sort({ createdAt: -1 });
       return res.json(cards);
     }
-    const assignments = await Assignment.find({ admin: req.user.id });
-    const ownerIds = assignments.map(a => a.owner);
-    const cards = await Card.find({ owner: { $in: ownerIds }, taken: false })
-      .populate('owner', 'name')
-      .sort({ createdAt: -1 });
+    const cards = await populateCard(
+      Card.find({ assignedAdmin: req.user.id, taken: false })
+    ).sort({ createdAt: -1 });
     res.json(cards);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -27,12 +26,12 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/', auth, superAdmin, async (req, res) => {
   try {
-    const { owner, type, number, expiryDate, cardHolderName, cardHolderPhone } = req.body;
-    if (!owner || !type || !number || !expiryDate || !cardHolderName || !cardHolderPhone)
-      return res.status(400).json({ message: 'Ega, tur, raqam, amal qilish muddati, egasining F.I.Sh. va telefon raqami kiritilishi shart' });
-    const card = await Card.create({ owner, type, number, expiryDate, cardHolderName, cardHolderPhone });
-    await card.populate('owner', 'name');
-    res.status(201).json(card);
+    const { assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone } = req.body;
+    if (!assignedAdmin || !type || !number || !expiryDate || !bankName || !cardHolderName || !cardHolderPhone)
+      return res.status(400).json({ message: 'Admin, tur, raqam, amal qilish muddati, bank nomi, F.I.Sh. va telefon raqami kiritilishi shart' });
+    const card = await Card.create({ assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone });
+    const populated = await populateCard(Card.findById(card._id));
+    res.status(201).json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -40,12 +39,14 @@ router.post('/', auth, superAdmin, async (req, res) => {
 
 router.put('/:id', auth, superAdmin, async (req, res) => {
   try {
-    const { owner, type, number, expiryDate, cardHolderName, cardHolderPhone } = req.body;
-    const card = await Card.findByIdAndUpdate(
-      req.params.id,
-      { owner, type, number, expiryDate, cardHolderName, cardHolderPhone },
-      { new: true }
-    ).populate('owner', 'name').populate('takenBy', 'username');
+    const { assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone } = req.body;
+    const card = await populateCard(
+      Card.findByIdAndUpdate(
+        req.params.id,
+        { assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone },
+        { new: true }
+      )
+    );
     if (!card) return res.status(404).json({ message: 'Karta topilmadi' });
     res.json(card);
   } catch (err) {
@@ -83,9 +84,8 @@ router.patch('/:id/received', auth, superAdmin, async (req, res) => {
       card.limitReachedAt = null;
     }
     await card.save();
-    await card.populate('owner', 'name');
-    await card.populate('takenBy', 'username');
-    res.json(card);
+    const populated = await populateCard(Card.findById(card._id));
+    res.json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -93,18 +93,20 @@ router.patch('/:id/received', auth, superAdmin, async (req, res) => {
 
 router.patch('/:id/reactivate', auth, superAdmin, async (req, res) => {
   try {
-    const card = await Card.findByIdAndUpdate(
-      req.params.id,
-      {
-        status: 'ACTIVE',
-        receivedAmount: 0,
-        limitReachedAt: null,
-        taken: false,
-        takenBy: null,
-        takenAt: null,
-      },
-      { new: true }
-    ).populate('owner', 'name').populate('takenBy', 'username');
+    const card = await populateCard(
+      Card.findByIdAndUpdate(
+        req.params.id,
+        {
+          status: 'ACTIVE',
+          receivedAmount: 0,
+          limitReachedAt: null,
+          taken: false,
+          takenBy: null,
+          takenAt: null,
+        },
+        { new: true }
+      )
+    );
     if (!card) return res.status(404).json({ message: 'Karta topilmadi' });
     res.json(card);
   } catch (err) {
@@ -120,10 +122,7 @@ router.patch('/:id/take', auth, async (req, res) => {
     const card = await Card.findById(req.params.id);
     if (!card) return res.status(404).json({ message: 'Karta topilmadi' });
     if (card.taken) return res.status(400).json({ message: 'Karta allaqachon olingan' });
-
-    const assignments = await Assignment.find({ admin: req.user.id });
-    const ownerIds = assignments.map(a => a.owner.toString());
-    if (!ownerIds.includes(card.owner.toString()))
+    if (card.assignedAdmin.toString() !== req.user.id)
       return res.status(403).json({ message: 'Bu karta uchun ruxsat yo\'q' });
 
     card.taken = true;

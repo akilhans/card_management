@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
-const Assignment = require('../models/Assignment');
+const Card = require('../models/Card');
 const { auth, superAdmin } = require('../middleware/auth');
 
 router.get('/', auth, superAdmin, async (req, res) => {
@@ -49,9 +49,9 @@ router.put('/:id', auth, superAdmin, async (req, res) => {
 
 router.delete('/:id', auth, superAdmin, async (req, res) => {
   try {
+    await Card.deleteMany({ assignedAdmin: req.params.id });
     await User.findByIdAndDelete(req.params.id);
-    await Assignment.deleteMany({ admin: req.params.id });
-    res.json({ message: 'Admin o\'chirildi' });
+    res.json({ message: 'Admin va unga tayinlangan kartalar o\'chirildi' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

@@ -4,9 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Login from './pages/Login';
 import Admins from './pages/superadmin/Admins';
-import Owners from './pages/superadmin/Owners';
 import Cards from './pages/superadmin/Cards';
-import Assignments from './pages/superadmin/Assignments';
 import Settings from './pages/superadmin/Settings';
 import HumoPage from './pages/admin/HumoPage';
 import UzcardPage from './pages/admin/UzcardPage';
@@ -23,7 +21,7 @@ const HomeRedirect = () => {
   const { user, loading } = useAuth();
   if (loading) return <div className="flex items-center justify-center h-screen text-gray-500">Yuklanmoqda...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role === 'super_admin') return <Navigate to="/superadmin/admins" replace />;
+  if (user.role === 'super_admin') return <Navigate to="/superadmin/cards" replace />;
   return <Navigate to="/admin/humo" replace />;
 };
 
@@ -40,14 +38,8 @@ function AppRoutes() {
           <Route path="/superadmin/admins" element={
             <ProtectedRoute role="super_admin"><Admins /></ProtectedRoute>
           } />
-          <Route path="/superadmin/owners" element={
-            <ProtectedRoute role="super_admin"><Owners /></ProtectedRoute>
-          } />
           <Route path="/superadmin/cards" element={
             <ProtectedRoute role="super_admin"><Cards /></ProtectedRoute>
-          } />
-          <Route path="/superadmin/assignments" element={
-            <ProtectedRoute role="super_admin"><Assignments /></ProtectedRoute>
           } />
           <Route path="/superadmin/settings" element={
             <ProtectedRoute role="super_admin"><Settings /></ProtectedRoute>

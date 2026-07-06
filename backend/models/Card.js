@@ -1,10 +1,11 @@
 const mongoose = require('mongoose');
 
 const cardSchema = new mongoose.Schema({
-  owner: { type: mongoose.Schema.Types.ObjectId, ref: 'Owner', required: true },
+  assignedAdmin: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   type: { type: String, enum: ['HUMO', 'UZCARD'], required: true },
   number: { type: String, required: true, trim: true },
   expiryDate: { type: String, required: true, trim: true },
+  bankName: { type: String, required: true, trim: true },
   cardHolderName: { type: String, required: true, trim: true },
   cardHolderPhone: { type: String, required: true, trim: true },
   status: { type: String, enum: ['ACTIVE', 'LIMIT_REACHED'], default: 'ACTIVE' },

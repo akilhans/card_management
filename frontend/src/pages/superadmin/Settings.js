@@ -165,7 +165,7 @@ export default function Settings() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Ega</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Tur</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Limit bo&apos;lgan sana</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Aktiv bo&apos;ladigan sana</th>
@@ -180,7 +180,7 @@ export default function Settings() {
                 return (
                   <tr key={card._id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-mono text-gray-800">{card.number}</td>
-                    <td className="px-4 py-3 text-gray-700">{card.owner?.name}</td>
+                    <td className="px-4 py-3 text-gray-700">{card.assignedAdmin?.username}</td>
                     <td className="px-4 py-3">
                       <span
                         className={`px-2 py-0.5 rounded text-xs font-semibold ${

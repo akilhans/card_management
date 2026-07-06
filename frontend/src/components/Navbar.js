@@ -24,10 +24,8 @@ export default function Navbar() {
 
         {user?.role === 'super_admin' && (
           <>
-            <Link to="/superadmin/admins" className={`px-3 py-2 rounded text-sm font-medium transition-colors ${isActive('/superadmin/admins')}`}>Adminlar</Link>
-            <Link to="/superadmin/owners" className={`px-3 py-2 rounded text-sm font-medium transition-colors ${isActive('/superadmin/owners')}`}>Egalar</Link>
             <Link to="/superadmin/cards" className={`px-3 py-2 rounded text-sm font-medium transition-colors ${isActive('/superadmin/cards')}`}>Kartalar</Link>
-            <Link to="/superadmin/assignments" className={`px-3 py-2 rounded text-sm font-medium transition-colors ${isActive('/superadmin/assignments')}`}>Tayinlashlar</Link>
+            <Link to="/superadmin/admins" className={`px-3 py-2 rounded text-sm font-medium transition-colors ${isActive('/superadmin/admins')}`}>Adminlar</Link>
             <Link to="/superadmin/settings" className={`px-3 py-2 rounded text-sm font-medium transition-colors ${isActive('/superadmin/settings')}`}>Sozlamalar</Link>
           </>
         )}
