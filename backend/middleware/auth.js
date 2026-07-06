@@ -18,3 +18,4 @@ const superAdmin = (req, res, next) => {
 };
 
 module.exports = { auth, superAdmin };
+
