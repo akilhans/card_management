@@ -21,10 +21,17 @@ export default function Login() {
       if (res.data.user.role === 'super_admin') navigate('/superadmin/admins');
       else navigate('/admin/humo');
     } catch (err) {
-      setError(err.response?.data?.message || 'Kirish amalga oshmadi');
-    } finally {
-      setLoading(false);
-    }
+  console.error("Login error:", err);
+
+  if (err.response) {
+    console.log("Status:", err.response.status);
+    console.log("Data:", err.response.data);
+
+    setError(err.response.data.message);
+  } else {
+    setError(err.message);
+  }
+}
   };
 
   return (
