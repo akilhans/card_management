@@ -14,6 +14,7 @@ app.use(
       "http://localhost:3000",
       "http://localhost:5173",
       "https://card-management-git-main-akilhans-projects.vercel.app",
+      "https://card-management-gilt.vercel.app",
       "https://card-management-c11w.vercel.app",
     ],
     credentials: true,
