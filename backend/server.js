@@ -1,39 +1,54 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const cron = require('node-cron');
-const connectDB = require('./config/db');
-const autoReactivateCards = require('./jobs/autoReactivateCards');
+require("dotenv").config();
+
+const express = require("express");
+const cors = require("cors");
+const connectDB = require("./config/db");
 
 const app = express();
-connectDB();
 
-app.use(cors());
-app.use(express.json());
+// Connect to MongoDB
+connectDB()
+  .then(() => console.log("Mongo connected"))
+  .catch(console.error);
 
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/users', require('./routes/users'));
-app.use('/api/owners', require('./routes/owners'));
-app.use('/api/cards', require('./routes/cards'));
-app.use('/api/assignments', require('./routes/assignments'));
-app.use('/api/settings', require('./routes/settings'));
-
-const CRON_TIMEZONE = process.env.CRON_TIMEZONE || 'Asia/Tashkent';
-
-// Daily at midnight — reactivate cards after limitResetDays from settings
-cron.schedule(
-  '0 0 * * *',
-  async () => {
-    try {
-      await autoReactivateCards();
-    } catch (err) {
-      console.error('[cron] Auto-reactivation error:', err.message);
-    }
-  },
-  { timezone: CRON_TIMEZONE }
+// Middleware
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "https://card-management-git-main-akilhans-projects.vercel.app",
+    ],
+    credentials: true,
+  })
 );
 
-console.log(`[cron] Daily auto-reactivation scheduled (00:00 ${CRON_TIMEZONE})`);
+app.use(express.json());
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Routes
+app.use("/api/auth", require("./routes/auth"));
+app.use("/api/users", require("./routes/users"));
+app.use("/api/owners", require("./routes/owners"));
+app.use("/api/cards", require("./routes/cards"));
+app.use("/api/assignments", require("./routes/assignments"));
+app.use("/api/settings", require("./routes/settings"));
+
+// Health check
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Card Management Backend is running",
+  });
+});
+
+// Export for Vercel
+module.exports = app;
+
+// Run locally only
+if (process.env.NODE_ENV !== "production") {
+  const PORT = process.env.PORT || 5000;
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
