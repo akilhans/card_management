@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'easygoing-cat-production-eeff.up.railway.app/api',
+  baseURL: 'easygoing-cat-production-eeff.up.railway.app/api',
 });
 
 api.interceptors.request.use((config) => {
