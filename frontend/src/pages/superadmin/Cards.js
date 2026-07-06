@@ -86,12 +86,17 @@ export default function Cards() {
       groups[key].cards.push(card);
     });
     return Object.values(groups).sort((a, b) => {
-      if (a.cardHolderName.toLowerCase() < b.cardHolderName.toLowerCase()) return -1;
-      if (a.cardHolderName.toLowerCase() > b.cardHolderName.toLowerCase()) return 1;
-      if (a.type < b.type) return -1;
-      if (a.type > b.type) return 1;
-      return 0;
-    });
+  const nameA = String(a.cardHolderName ?? "").trim().toLowerCase();
+  const nameB = String(b.cardHolderName ?? "").trim().toLowerCase();
+
+  if (nameA < nameB) return -1;
+  if (nameA > nameB) return 1;
+
+  const typeA = String(a.type ?? "");
+  const typeB = String(b.type ?? "");
+
+  return typeA.localeCompare(typeB);
+});
   }, [filteredCards]);
 
   const selectedGroup = useMemo(
@@ -163,7 +168,7 @@ export default function Cards() {
   };
 
   const ownerCount = groupedOwners.length;
-  const unassignedCount = cards.filter((card) => !card.assignedAdmin).length;
+  const unassignedCount = cards.filter((card) => !card?.assignedAdmin).length;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -247,8 +252,8 @@ export default function Cards() {
               >
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <p className="text-lg font-semibold text-gray-900">{group.cardHolderName}</p>
-                    <p className="text-xs text-gray-500">{group.cardHolderPhone}</p>
+                    <p className="text-lg font-semibold text-gray-900">{group.cardHolderName || "Noma'lum"}</p>
+                    <p className="text-xs text-gray-500">{group.cardHolderPhone   || "Noma'lum"}</p>
                   </div>
                   <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                     group.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
@@ -270,8 +275,8 @@ export default function Cards() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white rounded-xl shadow p-5">
             <div>
               <p className="text-sm text-gray-500">Tanlangan guruh</p>
-              <h2 className="text-xl font-semibold text-gray-900">{selectedGroup.cardHolderName} — {selectedGroup.type}</h2>
-              <p className="text-sm text-gray-500">{selectedGroup.cardHolderPhone}</p>
+              <h2 className="text-xl font-semibold text-gray-900">{selectedGroup.cardHolderName || "Noma'lum"} — {selectedGroup.type}</h2>
+              <p className="text-sm text-gray-500">{selectedGroup.cardHolderPhone   || "Noma'lum"}</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -325,7 +330,7 @@ export default function Cards() {
                         {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{card.receivedAmount.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
                     <td className="px-4 py-3 text-right space-x-2">
                       {card.status === 'LIMIT_REACHED' && (
                         <button
