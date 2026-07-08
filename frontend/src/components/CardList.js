@@ -1,5 +1,4 @@
 import React from 'react';
-import { useAuth } from '../context/AuthContext';
 
 const formatExpiry = (val) => {
   if (!val) return '';
@@ -24,7 +23,6 @@ const formatPhone = (val) => {
 };
 
 export default function CardList({ cards, onTake, onCopy, copied }) {
-  const { user } = useAuth();
   if (cards.length === 0) {
     return (
       <div className="bg-white rounded-xl shadow p-10 text-center text-gray-400 text-sm">

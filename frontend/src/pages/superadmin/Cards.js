@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../../api/axios';
-import { useAuth } from '../../context/AuthContext';
+ 
 
 const emptyForm = {
   assignedAdmin: '',
@@ -12,10 +12,6 @@ const emptyForm = {
   cardHolderPhone: '',
 };
 
-const maskCardNumber = (number) => {
-  if (!number) return '';
-  return number.replace(/\d(?=\d{4})/g, '*');
-};
 
 const formatExpiry = (val) => {
   if (!val) return '';
@@ -49,7 +45,6 @@ const formatPhone = (val) => {
 };
 
 export default function Cards() {
-  const { user } = useAuth();
   const [cards, setCards] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [adminAssignAll, setAdminAssignAll] = useState('');
