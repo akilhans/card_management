@@ -57,7 +57,7 @@ export default function Cards() {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [globalLimit, setGlobalLimit] = useState('');
+  // const [globalLimit, setGlobalLimit] = useState('');
   const [amounts, setAmounts] = useState({});
   const [copied, setCopied] = useState(null);
 
@@ -82,27 +82,11 @@ export default function Cards() {
   useEffect(() => {
     fetchAdmins();
     fetchCards();
-    // fetch settings
-    (async () => {
-      try {
-        const res = await api.get('/settings');
-        setGlobalLimit(res.data?.globalLimit != null ? String(res.data.globalLimit) : '');
-      } catch (err) {
-        console.error('Failed to fetch settings', err);
-      }
-    })();
+    // settings are managed separately; fetching of /settings removed from this page
+    // (previously fetched here but commented out per UX decision)
   }, [fetchAdmins, fetchCards]);
 
-  const saveGlobalLimit = async () => {
-    try {
-      const payload = { globalLimit: globalLimit === '' ? 0 : parseFloat(globalLimit) };
-      await api.put('/settings', payload);
-      fetchCards();
-      alert('Global limit saqlandi');
-    } catch (err) {
-      alert(err.response?.data?.message || 'Limitni saqlashda xatolik');
-    }
-  };
+  // saveGlobalLimit removed from this page — settings managed in Settings page
 
   const handleAmountChange = (cardId, val) => {
     setAmounts((s) => ({ ...s, [cardId]: val }));
@@ -348,6 +332,7 @@ export default function Cards() {
             <div>Barcha kartalar: <span className="font-semibold text-gray-900">{cards.length}</span></div>
             <div>Guruhlar: <span className="font-semibold text-gray-900">{ownerCount}</span></div>
             <div>Adminsiz kartalar: <span className="font-semibold text-gray-900">{unassignedCount}</span></div>
+            {/*
             <div className="pt-2">
               <label className="text-xs text-gray-600">Global karta limiti</label>
               <div className="mt-1 flex items-center gap-2">
@@ -366,6 +351,7 @@ export default function Cards() {
                 </button>
               </div>
             </div>
+            */}
           </div>
         </div>
       </div>
