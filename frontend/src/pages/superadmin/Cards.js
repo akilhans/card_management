@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 
 const emptyForm = {
   assignedAdmin: '',
@@ -16,6 +17,15 @@ const maskCardNumber = (number) => {
   return number.replace(/\d(?=\d{4})/g, '*');
 };
 
+const formatExpiry = (val) => {
+  if (!val) return '';
+  const v = String(val);
+  if (v.includes('/')) return v;
+  const digits = v.replace(/[^0-9]/g, '');
+  if (digits.length <= 2) return digits;
+  return digits.slice(0, 2) + '/' + digits.slice(2, 4);
+};
+
 const formatOwnerKey = (card) => {
   const name = card.cardHolderName ? String(card.cardHolderName).trim() : 'No name';
   const phone = card.cardHolderPhone ? String(card.cardHolderPhone).trim() : 'No phone';
@@ -23,9 +33,28 @@ const formatOwnerKey = (card) => {
   return `${name}||${phone}||${type}`;
 };
 
+// Format phone as "99 109 34 14" (2-3-2-2), strip leading +998
+const formatPhone = (val) => {
+  if (!val && val !== '') return '';
+  const v = String(val);
+  let digits = v.replace(/\D/g, '');
+  if (digits.startsWith('998')) digits = digits.slice(3);
+  if (digits.startsWith('0') && digits.length === 10) digits = digits.slice(1); // optional
+  // progressive formatting
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 5) return digits.slice(0,2) + ' ' + digits.slice(2);
+  if (digits.length <= 7) return digits.slice(0,2) + ' ' + digits.slice(2,5) + ' ' + digits.slice(5);
+  // up to 9
+  return digits.slice(0,2) + ' ' + digits.slice(2,5) + ' ' + digits.slice(5,7) + (digits.length > 7 ? ' ' + digits.slice(7,9) : '');
+};
+
 export default function Cards() {
+  const { user } = useAuth();
   const [cards, setCards] = useState([]);
   const [admins, setAdmins] = useState([]);
+  const [adminAssignAll, setAdminAssignAll] = useState('');
+  const [adminAssignHumo, setAdminAssignHumo] = useState('');
+  const [adminAssignUzcard, setAdminAssignUzcard] = useState('');
   const [selectedGroupKey, setSelectedGroupKey] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -33,6 +62,7 @@ export default function Cards() {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [copied, setCopied] = useState(null);
 
   const fetchAdmins = useCallback(async () => {
     try {
@@ -86,17 +116,17 @@ export default function Cards() {
       groups[key].cards.push(card);
     });
     return Object.values(groups).sort((a, b) => {
-  const nameA = String(a.cardHolderName ?? "").trim().toLowerCase();
-  const nameB = String(b.cardHolderName ?? "").trim().toLowerCase();
+      const nameA = String(a.cardHolderName ?? "").trim().toLowerCase();
+      const nameB = String(b.cardHolderName ?? "").trim().toLowerCase();
 
-  if (nameA < nameB) return -1;
-  if (nameA > nameB) return 1;
+      if (nameA < nameB) return -1;
+      if (nameA > nameB) return 1;
 
-  const typeA = String(a.type ?? "");
-  const typeB = String(b.type ?? "");
+      const typeA = String(a.type ?? "");
+      const typeB = String(b.type ?? "");
 
-  return typeA.localeCompare(typeB);
-});
+      return typeA.localeCompare(typeB);
+    });
   }, [filteredCards]);
 
   const selectedGroup = useMemo(
@@ -120,7 +150,7 @@ export default function Cards() {
       expiryDate: card.expiryDate || '',
       bankName: card.bankName || '',
       cardHolderName: card.cardHolderName || '',
-      cardHolderPhone: card.cardHolderPhone || '',
+      cardHolderPhone: formatPhone(card.cardHolderPhone || ''),
     });
     setError('');
     setShowModal(true);
@@ -147,6 +177,51 @@ export default function Cards() {
     }
   };
 
+  const assignAllTo = async (adminId) => {
+    if (!adminId) return;
+    if (!selectedGroup) return;
+    try {
+      await Promise.all(
+        selectedGroup.cards.map((card) =>
+          api.put(`/cards/${card._id}`, {
+            assignedAdmin: adminId,
+            type: card.type,
+            number: card.number,
+            expiryDate: card.expiryDate || '',
+            bankName: card.bankName || '',
+            cardHolderName: card.cardHolderName || '',
+            cardHolderPhone: card.cardHolderPhone || '',
+          })
+        )
+      );
+      fetchCards();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const assignByType = async (humoAdminId, uzAdminId) => {
+    if (!selectedGroup) return;
+    try {
+      await Promise.all(
+        selectedGroup.cards.map((card) =>
+          api.put(`/cards/${card._id}`, {
+            assignedAdmin: card.type === 'HUMO' ? humoAdminId || null : uzAdminId || null,
+            type: card.type,
+            number: card.number,
+            expiryDate: card.expiryDate || '',
+            bankName: card.bankName || '',
+            cardHolderName: card.cardHolderName || '',
+            cardHolderPhone: card.cardHolderPhone || '',
+          })
+        )
+      );
+      fetchCards();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm('Bu kartani butunlay o\'chirishni xohlaysizmi?')) return;
     try {
@@ -165,6 +240,12 @@ export default function Cards() {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleCopy = (number, id) => {
+    navigator.clipboard.writeText(number);
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
   };
 
   const ownerCount = groupedOwners.length;
@@ -253,7 +334,7 @@ export default function Cards() {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <p className="text-lg font-semibold text-gray-900">{group.cardHolderName || "Noma'lum"}</p>
-                    <p className="text-xs text-gray-500">{group.cardHolderPhone   || "Noma'lum"}</p>
+                    <p className="text-xs text-gray-500">{formatPhone(group.cardHolderPhone || '') || "Noma'lum"}</p>
                   </div>
                   <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                     group.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
@@ -272,25 +353,77 @@ export default function Cards() {
 
       {selectedGroup && (
         <div className="space-y-4 mb-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-white rounded-xl shadow p-5">
-            <div>
-              <p className="text-sm text-gray-500">Tanlangan guruh</p>
-              <h2 className="text-xl font-semibold text-gray-900">{selectedGroup.cardHolderName || "Noma'lum"} — {selectedGroup.type}</h2>
-              <p className="text-sm text-gray-500">{selectedGroup.cardHolderPhone   || "Noma'lum"}</p>
+          <div className="flex flex-col gap-3 bg-white rounded-xl shadow p-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Tanlangan guruh</p>
+                <h2 className="text-xl font-semibold text-gray-900">{selectedGroup.cardHolderName || "Noma'lum"} — {selectedGroup.type}</h2>
+                <p className="text-sm text-gray-500">{formatPhone(selectedGroup.cardHolderPhone || '') || "Noma'lum"}</p>
+              </div>
+              <div className="flex gap-3 items-start">
+                <button
+                  onClick={() => setSelectedGroupKey(null)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Orqaga
+                </button>
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 transition-colors"
+                >
+                  Qidiruvni tozalash
+                </button>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setSelectedGroupKey(null)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Orqaga
-              </button>
-              <button
-                onClick={() => setSearchQuery('')}
-                className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 transition-colors"
-              >
-                Qidiruvni tozalash
-              </button>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <select
+                  value={adminAssignAll}
+                  onChange={(e) => setAdminAssignAll(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[160px]"
+                >
+                  <option value="">Tayinlash: Barchasi</option>
+                  {admins.map((a) => (
+                    <option key={a._id} value={a._id}>{a.username}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => assignAllTo(adminAssignAll)}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm whitespace-nowrap"
+                >
+                  Barchasini tayinlash
+                </button>
+              </div>
+
+              <div className="w-full border-t border-gray-100 mt-3 pt-3 sm:mt-0 sm:pt-0 sm:flex sm:items-center sm:gap-2">
+                <select
+                  value={adminAssignHumo}
+                  onChange={(e) => setAdminAssignHumo(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[160px]"
+                >
+                  <option value="">HUMO uchun admin</option>
+                  {admins.map((a) => (
+                    <option key={a._id} value={a._id}>{a.username}</option>
+                  ))}
+                </select>
+                <select
+                  value={adminAssignUzcard}
+                  onChange={(e) => setAdminAssignUzcard(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[160px]"
+                >
+                  <option value="">UZCARD uchun admin</option>
+                  {admins.map((a) => (
+                    <option key={a._id} value={a._id}>{a.username}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => assignByType(adminAssignHumo, adminAssignUzcard)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm whitespace-nowrap"
+                >
+                  Turi bo'yicha tayinlash
+                </button>
+              </div>
             </div>
           </div>
 
@@ -298,15 +431,15 @@ export default function Cards() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Karta</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Holat</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Qabul qilingan</th>
-                  <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">#</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Karta</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Admin</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Holat</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Qabul qilingan</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -317,21 +450,32 @@ export default function Cards() {
                       card.status === 'LIMIT_REACHED' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
                     }`}
                   >
-                    <td className="px-4 py-3 text-gray-400">{index + 1}</td>
-                    <td className="px-4 py-3 text-gray-700">{card.bankName}</td>
-                    <td className="px-4 py-3 font-mono text-gray-800">{maskCardNumber(card.number)}</td>
-                    <td className="px-4 py-3 font-mono text-gray-700 whitespace-nowrap">{card.expiryDate}</td>
-                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{card.cardHolderPhone}</td>
-                    <td className="px-4 py-3 text-indigo-700">{card.assignedAdmin?.username || 'Hech kimga tayinlanmagan'}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-6 py-4 text-gray-400">{index + 1}</td>
+                    <td className="px-6 py-4 text-gray-700">{card.bankName}</td>
+                    <td className="px-6 py-4 font-mono text-gray-800">
+                      <div className="flex items-center gap-2">
+                        <span>{card.number}</span>
+                        <button
+                          onClick={() => handleCopy(card.number, card._id)}
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                          title="Karta raqamini nusxalash"
+                        >
+                          {copied === card._id ? '✓' : '📋'}
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
+                    <td className="px-6 py-4 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
+                    <td className="px-6 py-4 text-indigo-700">{card.assignedAdmin?.username || 'Hech kimga tayinlanmagan'}</td>
+                    <td className="px-6 py-4">
                       <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                         card.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                       }`}>
                         {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right space-x-2">
+                    <td className="px-6 py-4 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
+                    <td className="px-6 py-4 text-right space-x-2">
                       {card.status === 'LIMIT_REACHED' && (
                         <button
                           onClick={() => handleReactivate(card._id)}
@@ -391,6 +535,32 @@ export default function Cards() {
                   ))}
                 </select>
               </div>
+                {!editing && groupedOwners.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Mavjud egalarni tanlash</label>
+                    <select
+                      onChange={(e) => {
+                        const key = e.target.value;
+                        const g = groupedOwners.find((x) => x.key === key);
+                        if (g) {
+                          setForm({
+                            ...form,
+                            cardHolderName: g.cardHolderName || '',
+                            cardHolderPhone: formatPhone(g.cardHolderPhone || ''),
+                            type: g.type || form.type,
+                          });
+                        }
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      defaultValue=""
+                    >
+                      <option value="">Yangi egani kiritish</option>
+                      {groupedOwners.map((g) => (
+                        <option key={g.key} value={g.key}>{g.cardHolderName} — {g.cardHolderPhone} ({g.type})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Karta turi</label>
                 <select
@@ -429,7 +599,7 @@ export default function Cards() {
                 <input
                   type="text"
                   value={form.expiryDate}
-                  onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
+                  onChange={(e) => setForm({ ...form, expiryDate: formatExpiry(e.target.value) })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="OO/YY"
                   maxLength={5}
@@ -452,7 +622,7 @@ export default function Cards() {
                 <input
                   type="tel"
                   value={form.cardHolderPhone}
-                  onChange={(e) => setForm({ ...form, cardHolderPhone: e.target.value })}
+                  onChange={(e) => setForm({ ...form, cardHolderPhone: formatPhone(e.target.value) })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="+998 90 123 45 67"
                   required

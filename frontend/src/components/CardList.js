@@ -1,6 +1,30 @@
 import React from 'react';
+import { useAuth } from '../context/AuthContext';
+
+const formatExpiry = (val) => {
+  if (!val) return '';
+  const v = String(val);
+  if (v.includes('/')) return v;
+  const digits = v.replace(/[^0-9]/g, '');
+  if (digits.length <= 2) return digits;
+  return digits.slice(0, 2) + '/' + digits.slice(2, 4);
+};
+
+// same phone formatter as in Cards.js
+const formatPhone = (val) => {
+  if (!val && val !== '') return '';
+  const v = String(val);
+  let digits = v.replace(/\D/g, '');
+  if (digits.startsWith('998')) digits = digits.slice(3);
+  if (digits.startsWith('0') && digits.length === 10) digits = digits.slice(1);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 5) return digits.slice(0,2) + ' ' + digits.slice(2);
+  if (digits.length <= 7) return digits.slice(0,2) + ' ' + digits.slice(2,5) + ' ' + digits.slice(5);
+  return digits.slice(0,2) + ' ' + digits.slice(2,5) + ' ' + digits.slice(5,7) + (digits.length > 7 ? ' ' + digits.slice(7,9) : '');
+};
 
 export default function CardList({ cards, onTake, onCopy, copied }) {
+  const { user } = useAuth();
   if (cards.length === 0) {
     return (
       <div className="bg-white rounded-xl shadow p-10 text-center text-gray-400 text-sm">
@@ -14,9 +38,10 @@ export default function CardList({ cards, onTake, onCopy, copied }) {
       {cards.map((card) => (
         <div
           key={card._id}
-          className={`bg-white rounded-xl shadow p-5 border-l-4 transition-shadow hover:shadow-md ${
+          className={`bg-white rounded-xl shadow p-6 border-l-4 transition-shadow hover:shadow-md ${
             card.status === 'LIMIT_REACHED' ? 'border-red-500' : 'border-green-500'
           }`}
+          style={{ minWidth: 260 }}
         >
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-indigo-600 truncate max-w-[120px]">
@@ -31,17 +56,24 @@ export default function CardList({ cards, onTake, onCopy, copied }) {
             </span>
           </div>
 
-          <p className="text-xs text-gray-500 mb-2">{card.bankName}</p>
+          <p className="text-sm text-gray-600 mb-2">{card.bankName}</p>
 
           <p className="font-mono text-base font-bold text-gray-800 mb-1 tracking-widest">
-            {card.number}
+            <span className="mr-2">{card.number}</span>
+            <button
+              onClick={() => onCopy(card.number, card._id)}
+              className="text-sm text-gray-500 hover:text-gray-700"
+              title="Karta raqamini nusxalash"
+            >
+              {copied === card._id ? '✓' : '📋'}
+            </button>
           </p>
-          <div className="mb-1 text-xs text-gray-600">
+          <div className="mb-1 text-sm text-gray-700">
             <span className="font-medium">{card.cardHolderName}</span>
           </div>
           <div className="flex items-center justify-between mb-4 text-xs text-gray-500">
-            <span className="font-mono">{card.cardHolderPhone}</span>
-            <span className="font-mono">{card.expiryDate}</span>
+            <span className="font-mono">{formatPhone(card.cardHolderPhone || '')}</span>
+            <span className="font-mono">{formatExpiry(card.expiryDate)}</span>
           </div>
 
           <div className="flex gap-2">
