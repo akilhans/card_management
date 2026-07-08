@@ -57,6 +57,8 @@ export default function Cards() {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [globalLimit, setGlobalLimit] = useState('');
+  const [amounts, setAmounts] = useState({});
   const [copied, setCopied] = useState(null);
 
   const fetchAdmins = useCallback(async () => {
@@ -80,7 +82,44 @@ export default function Cards() {
   useEffect(() => {
     fetchAdmins();
     fetchCards();
+    // fetch settings
+    (async () => {
+      try {
+        const res = await api.get('/settings');
+        setGlobalLimit(res.data?.globalLimit != null ? String(res.data.globalLimit) : '');
+      } catch (err) {
+        console.error('Failed to fetch settings', err);
+      }
+    })();
   }, [fetchAdmins, fetchCards]);
+
+  const saveGlobalLimit = async () => {
+    try {
+      const payload = { globalLimit: globalLimit === '' ? 0 : parseFloat(globalLimit) };
+      await api.put('/settings', payload);
+      fetchCards();
+      alert('Global limit saqlandi');
+    } catch (err) {
+      alert(err.response?.data?.message || 'Limitni saqlashda xatolik');
+    }
+  };
+
+  const handleAmountChange = (cardId, val) => {
+    setAmounts((s) => ({ ...s, [cardId]: val }));
+  };
+
+  const submitReceived = async (card) => {
+    const raw = amounts[card._id];
+    const amount = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+    if (isNaN(amount) || amount < 0) return alert('Iltimos, to\'g\'ri summa kiriting');
+    try {
+      await api.patch(`/cards/${card._id}/received`, { amount });
+      setAmounts((s) => ({ ...s, [card._id]: '' }));
+      fetchCards();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Summani qo\'shishda xatolik');
+    }
+  };
 
   const filteredCards = useMemo(() => {
     return cards.filter((card) => {
@@ -309,6 +348,24 @@ export default function Cards() {
             <div>Barcha kartalar: <span className="font-semibold text-gray-900">{cards.length}</span></div>
             <div>Guruhlar: <span className="font-semibold text-gray-900">{ownerCount}</span></div>
             <div>Adminsiz kartalar: <span className="font-semibold text-gray-900">{unassignedCount}</span></div>
+            <div className="pt-2">
+              <label className="text-xs text-gray-600">Global karta limiti</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="number"
+                  value={globalLimit}
+                  onChange={(e) => setGlobalLimit(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm"
+                  placeholder="Masalan: 2000"
+                />
+                <button
+                  onClick={saveGlobalLimit}
+                  className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-sm"
+                >
+                  Saqlash
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -470,27 +527,44 @@ export default function Cards() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
-                    <td className="px-6 py-4 text-right space-x-2">
-                      {card.status === 'LIMIT_REACHED' && (
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          value={amounts[card._id] ?? ''}
+                          onChange={(e) => handleAmountChange(card._id, e.target.value)}
+                          placeholder="sum"
+                          className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
+                        />
                         <button
-                          onClick={() => handleReactivate(card._id)}
-                          className="text-xs font-medium border border-green-600 text-green-600 hover:bg-green-600 hover:text-white px-2 py-1 rounded transition-colors"
+                          onClick={() => submitReceived(card)}
+                          className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded text-gray-700"
                         >
-                          Qayta faollashtirish
+                          Qo'shish
                         </button>
-                      )}
-                      <button
-                        onClick={() => handleOpenEdit(card)}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                      >
-                        Tahrirlash
-                      </button>
-                      <button
-                        onClick={() => handleDelete(card._id)}
-                        className="text-red-600 hover:text-red-800 text-sm font-medium"
-                      >
-                        O‘chirish
-                      </button>
+
+                        {card.status === 'LIMIT_REACHED' && (
+                          <button
+                            onClick={() => handleReactivate(card._id)}
+                            className="text-xs font-medium border border-green-600 text-green-600 hover:bg-green-600 hover:text-white px-2 py-1 rounded transition-colors"
+                          >
+                            Qayta faollashtirish
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleOpenEdit(card)}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          Tahrirlash
+                        </button>
+                        <button
+                          onClick={() => handleDelete(card._id)}
+                          className="text-red-600 hover:text-red-800 text-sm font-medium"
+                        >
+                          O‘chirish
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
