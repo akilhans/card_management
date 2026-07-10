@@ -36,7 +36,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    if (username === "superadmin" && password === "admin123") {
+    if (username === "JEK" && password === "Dadakhanov17") {
       const token = jwt.sign(
         {
           id: "dev_super_id",

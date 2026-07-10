@@ -206,6 +206,15 @@ export default function Cards() {
     setShowModal(true);
   };
 
+  const formatCardNumber = (number) => {
+    if (!number) return "";
+  
+    return String(number)
+      .replace(/\D/g, "")
+      .replace(/(.{4})/g, "$1 ")
+      .trim();
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -571,6 +580,9 @@ export default function Cards() {
                   <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">#</th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Bank</th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Karta</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+  Karta raqami
+</th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
                   <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Admin</th>
@@ -589,6 +601,18 @@ export default function Cards() {
                   >
                     <td className="px-6 py-4 text-gray-400">{index + 1}</td>
                     <td className="px-6 py-4 text-gray-700">{card.bankName}</td>
+                    <td className="px-6 py-4 font-mono text-gray-700">
+  <div className="flex items-center gap-2">
+    <span>{card.number}</span>
+    <button
+      onClick={() => handleCopy(card.number, card._id)}
+      className="text-xs text-gray-500 hover:text-gray-700"
+      title="Nusxalash"
+    >
+      {copied === card._id ? '✓' : '📋'}
+    </button>
+  </div>
+</td>
                     <td className="px-6 py-4 font-mono text-gray-800">
                       <div className="flex items-center gap-2">
                         <span>{card.number}</span>
@@ -655,7 +679,7 @@ export default function Cards() {
                 ))}
                 {selectedGroup.cards.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-6 py-10 text-center text-gray-400 text-sm">
+                    <td colSpan={10} className="px-6 py-10 text-center text-gray-400 text-sm">
                       Bu guruhda hech qanday karta yo‘q.
                     </td>
                   </tr>
@@ -756,6 +780,9 @@ export default function Cards() {
               <tr>
                 <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">#</th>
                 <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
+  KARTA RAQAMI
+</th>
                 <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Karta egasi</th>
                 <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
                 <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
@@ -768,7 +795,7 @@ export default function Cards() {
             <tbody className="divide-y divide-gray-100">
               {filteredTakenCards.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-10 text-center text-gray-400 text-sm">
+                  <td colSpan={10} className="px-6 py-10 text-center text-gray-400 text-sm">
                     {takenCards.length === 0 ? 'Hali hech qanday karta olinmagan.' : 'Tanlangan vaqt oralig\'ida karta topilmadi.'}
                   </td>
                 </tr>
@@ -777,6 +804,21 @@ export default function Cards() {
                   <tr key={card._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 text-gray-400">{index + 1}</td>
                     <td className="px-6 py-4 text-gray-700">{card.bankName}</td>
+                    <td className="px-6 py-4">
+  <div className="flex items-center gap-2 whitespace-nowrap">
+    <span className="font-mono tracking-wider text-gray-800">
+      {formatCardNumber(card.number)}
+    </span>
+
+    <button
+      onClick={() => handleCopy(card.number, card._id)}
+      className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+      title="Copy"
+    >
+      {copied === card._id ? "✓" : "📋"}
+    </button>
+  </div>
+</td>
                     <td className="px-6 py-4 text-gray-700">{card.cardHolderName}</td>
                     <td className="px-6 py-4 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
                     <td className="px-6 py-4 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
