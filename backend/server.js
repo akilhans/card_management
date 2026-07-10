@@ -8,10 +8,16 @@ const autoReactivateCards = require("./jobs/autoReactivateCards");
 
 const app = express();
 
+const dns = require("dns");
+
+// Use public DNS servers
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
+
 app.use(
   cors({
     origin: [
       "http://localhost:3000",
+      "http://localhost:3001",
       "http://localhost:5173",
       "https://card-management-git-main-akilhans-projects.vercel.app",
       "https://card-management-gilt.vercel.app",
@@ -23,14 +29,10 @@ app.use(
 
 app.use(express.json());
 
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (err) {
-    res.status(500).json({ message: "Database connection failed" });
-  }
-});
+// Connect to database on startup (non-blocking)
+connectDB()
+  .then(() => console.log("✓ Database connected successfully"))
+  .catch((err) => console.warn("⚠ Database connection failed, will retry on next request:", err.message));
 
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/users", require("./routes/users"));

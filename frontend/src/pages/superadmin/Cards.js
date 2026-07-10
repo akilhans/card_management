@@ -12,6 +12,26 @@ const emptyForm = {
   cardHolderPhone: '',
 };
 
+const formatDate = (dateString) => {
+  if (!dateString) return '-';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('uz-UZ', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+};
+
+const formatTime = (dateString) => {
+  if (!dateString) return '-';
+  const date = new Date(dateString);
+  return date.toLocaleTimeString('uz-UZ', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+};
+
 
 const formatExpiry = (val) => {
   if (!val) return '';
@@ -46,6 +66,7 @@ const formatPhone = (val) => {
 
 export default function Cards() {
   const [cards, setCards] = useState([]);
+  const [takenCards, setTakenCards] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [adminAssignAll, setAdminAssignAll] = useState('');
   const [adminAssignHumo, setAdminAssignHumo] = useState('');
@@ -57,9 +78,12 @@ export default function Cards() {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  // const [globalLimit, setGlobalLimit] = useState('');
+  const [view, setView] = useState('assigned'); // 'assigned' yoki 'taken'
   const [amounts, setAmounts] = useState({});
   const [copied, setCopied] = useState(null);
+  const [takenDateFilter, setTakenDateFilter] = useState('all');
+  const [takenCustomDateFrom, setTakenCustomDateFrom] = useState('');
+  const [takenCustomDateTo, setTakenCustomDateTo] = useState('');
 
   const fetchAdmins = useCallback(async () => {
     try {
@@ -79,12 +103,20 @@ export default function Cards() {
     }
   }, []);
 
+  const fetchTakenCards = useCallback(async () => {
+    try {
+      const res = await api.get('/cards/taken/all');
+      setTakenCards(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchAdmins();
     fetchCards();
-    // settings are managed separately; fetching of /settings removed from this page
-    // (previously fetched here but commented out per UX decision)
-  }, [fetchAdmins, fetchCards]);
+    fetchTakenCards();
+  }, [fetchAdmins, fetchCards, fetchTakenCards]);
 
   // saveGlobalLimit removed from this page — settings managed in Settings page
 
@@ -266,6 +298,46 @@ export default function Cards() {
     setTimeout(() => setCopied(null), 2000);
   };
 
+  const getFilteredTakenCards = () => {
+    let filtered = [...takenCards];
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+    if (takenDateFilter === 'today') {
+      filtered = filtered.filter((card) => {
+        const cardDate = new Date(card.takenAt);
+        return cardDate >= todayStart && cardDate <= todayEnd;
+      });
+    } else if (takenDateFilter === 'yesterday') {
+      const yesterdayStart = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+      const yesterdayEnd = new Date(todayStart.getTime() - 1);
+      filtered = filtered.filter((card) => {
+        const cardDate = new Date(card.takenAt);
+        return cardDate >= yesterdayStart && cardDate <= yesterdayEnd;
+      });
+    } else if (takenDateFilter === 'thisMonth') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      filtered = filtered.filter((card) => {
+        const cardDate = new Date(card.takenAt);
+        return cardDate >= monthStart && cardDate <= monthEnd;
+      });
+    } else if (takenDateFilter === 'custom' && takenCustomDateFrom && takenCustomDateTo) {
+      const fromDate = new Date(takenCustomDateFrom);
+      const toDate = new Date(takenCustomDateTo);
+      toDate.setHours(23, 59, 59, 999);
+      filtered = filtered.filter((card) => {
+        const cardDate = new Date(card.takenAt);
+        return cardDate >= fromDate && cardDate <= toDate;
+      });
+    }
+
+    return filtered;
+  };
+
+  const filteredTakenCards = getFilteredTakenCards();
+
   const ownerCount = groupedOwners.length;
   const unassignedCount = cards.filter((card) => !card?.assignedAdmin).length;
 
@@ -293,6 +365,33 @@ export default function Cards() {
           </button>
         </div>
       </div>
+
+      {/* Tab Navigation */}
+      <div className="flex gap-2 mb-6 border-b border-gray-200">
+        <button
+          onClick={() => { setView('assigned'); setSelectedGroupKey(null); setSearchQuery(''); }}
+          className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+            view === 'assigned'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          Tayinlangan Kartalar ({cards.length})
+        </button>
+        <button
+          onClick={() => { setView('taken'); setSearchQuery(''); }}
+          className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+            view === 'taken'
+              ? 'border-green-600 text-green-600'
+              : 'border-transparent text-gray-600 hover:text-gray-800'
+          }`}
+        >
+          Olingan Kartalar ({takenCards.length})
+        </button>
+      </div>
+
+      {view === 'assigned' && (
+        <>
 
       <div className="grid gap-4 md:grid-cols-3 mb-6">
         <div className="md:col-span-2 bg-white rounded-xl shadow p-4">
@@ -565,6 +664,133 @@ export default function Cards() {
             </table>
           </div>
         </div>
+      )}
+      </>
+      )}
+
+      {view === 'taken' && (
+        <>
+          {/* Filter Controls */}
+          <div className="bg-white rounded-xl shadow p-4 mb-6">
+            <p className="text-sm font-medium text-gray-700 mb-3">Vaqt bo'yicha filter</p>
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                onClick={() => { setTakenDateFilter('all'); setTakenCustomDateFrom(''); setTakenCustomDateTo(''); }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  takenDateFilter === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Barchasi
+              </button>
+              <button
+                onClick={() => { setTakenDateFilter('today'); setTakenCustomDateFrom(''); setTakenCustomDateTo(''); }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  takenDateFilter === 'today'
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Bugun
+              </button>
+              <button
+                onClick={() => { setTakenDateFilter('yesterday'); setTakenCustomDateFrom(''); setTakenCustomDateTo(''); }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  takenDateFilter === 'yesterday'
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Kecha
+              </button>
+              <button
+                onClick={() => { setTakenDateFilter('thisMonth'); setTakenCustomDateFrom(''); setTakenCustomDateTo(''); }}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  takenDateFilter === 'thisMonth'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Shu oy
+              </button>
+              <button
+                onClick={() => setTakenDateFilter('custom')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  takenDateFilter === 'custom'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                📅 Sana tanlash
+              </button>
+            </div>
+
+            {takenDateFilter === 'custom' && (
+              <div className="flex gap-3 items-end flex-wrap">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Boshlanish sanasi</label>
+                  <input
+                    type="date"
+                    value={takenCustomDateFrom}
+                    onChange={(e) => setTakenCustomDateFrom(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Tugash sanasi</label>
+                  <input
+                    type="date"
+                    value={takenCustomDateTo}
+                    onChange={(e) => setTakenCustomDateTo(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+        <div className="bg-white rounded-xl shadow overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">#</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Karta egasi</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Admin (olingan)</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Sana</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Vaqt</th>
+                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Balans</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredTakenCards.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-6 py-10 text-center text-gray-400 text-sm">
+                    {takenCards.length === 0 ? 'Hali hech qanday karta olinmagan.' : 'Tanlangan vaqt oralig\'ida karta topilmadi.'}
+                  </td>
+                </tr>
+              ) : (
+                filteredTakenCards.map((card, index) => (
+                  <tr key={card._id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 text-gray-400">{index + 1}</td>
+                    <td className="px-6 py-4 text-gray-700">{card.bankName}</td>
+                    <td className="px-6 py-4 text-gray-700">{card.cardHolderName}</td>
+                    <td className="px-6 py-4 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
+                    <td className="px-6 py-4 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
+                    <td className="px-6 py-4 text-indigo-700">{card.takenBy?.username || '-'}</td>
+                    <td className="px-6 py-4 text-gray-700 whitespace-nowrap">{formatDate(card.takenAt)}</td>
+                    <td className="px-6 py-4 text-gray-700 whitespace-nowrap">{formatTime(card.takenAt)}</td>
+                    <td className="px-6 py-4 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        </>
       )}
 
       {showModal && (

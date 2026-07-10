@@ -24,6 +24,32 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
+// Olingan kartalarni ko'rsatish (superadmin uchun)
+router.get('/taken/all', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ message: 'Faqat superadminlar uchun' });
+    }
+    const cards = await populateCard(Card.find({ taken: true })).sort({ takenAt: -1 });
+    res.json(cards);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Admin o'z ishlatgan kartalarni ko'rsatish
+router.get('/my-used', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Faqat adminlar uchun' });
+    }
+    const cards = await populateCard(Card.find({ takenBy: req.user.id, taken: true })).sort({ takenAt: -1 });
+    res.json(cards);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 router.post('/', auth, superAdmin, async (req, res) => {
   try {
     const { assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone } = req.body;
