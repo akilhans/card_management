@@ -45,8 +45,7 @@ const formatExpiry = (val) => {
 const formatOwnerKey = (card) => {
   const name = card.cardHolderName ? String(card.cardHolderName).trim() : 'No name';
   const phone = card.cardHolderPhone ? String(card.cardHolderPhone).trim() : 'No phone';
-  const type = card.type || 'UNKNOWN';
-  return `${name}||${phone}||${type}`;
+  return `${name}||${phone}`;
 };
 
 // Format phone as "99 109 34 14" (2-3-2-2), strip leading +998
@@ -72,6 +71,7 @@ export default function Cards() {
   const [adminAssignHumo, setAdminAssignHumo] = useState('');
   const [adminAssignUzcard, setAdminAssignUzcard] = useState('');
   const [selectedGroupKey, setSelectedGroupKey] = useState(null);
+  const [selectedTypeTab, setSelectedTypeTab] = useState('HUMO');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -159,7 +159,6 @@ export default function Cards() {
           key,
           cardHolderName: card.cardHolderName,
           cardHolderPhone: card.cardHolderPhone,
-          type: card.type,
           cards: [],
         };
       }
@@ -168,21 +167,32 @@ export default function Cards() {
     return Object.values(groups).sort((a, b) => {
       const nameA = String(a.cardHolderName ?? "").trim().toLowerCase();
       const nameB = String(b.cardHolderName ?? "").trim().toLowerCase();
-
       if (nameA < nameB) return -1;
       if (nameA > nameB) return 1;
-
-      const typeA = String(a.type ?? "");
-      const typeB = String(b.type ?? "");
-
-      return typeA.localeCompare(typeB);
+      return 0;
     });
   }, [filteredCards]);
 
-  const selectedGroup = useMemo(
+  const selectedOwner = useMemo(
     () => groupedOwners.find((group) => group.key === selectedGroupKey) || null,
     [groupedOwners, selectedGroupKey]
   );
+
+  const selectedGroupCards = useMemo(() => {
+    if (!selectedOwner) return [];
+    return selectedOwner.cards.filter((c) => c.type === selectedTypeTab);
+  }, [selectedOwner, selectedTypeTab]);
+
+  const handleSelectOwner = (group) => {
+    setSelectedGroupKey(group.key);
+    const hasHumo = group.cards.some((c) => c.type === 'HUMO');
+    setSelectedTypeTab(hasHumo ? 'HUMO' : 'UZCARD');
+  };
+
+  const handleBackToOwners = () => {
+    setSelectedGroupKey(null);
+    setSelectedTypeTab('HUMO');
+  };
 
   const handleOpenCreate = () => {
     setEditing(null);
@@ -230,6 +240,7 @@ export default function Cards() {
       }
       setShowModal(false);
       setSelectedGroupKey(null);
+      setSelectedTypeTab('HUMO');
       fetchCards();
     } catch (err) {
       setError(err.response?.data?.message || 'Xatolik yuz berdi');
@@ -238,10 +249,10 @@ export default function Cards() {
 
   const assignAllTo = async (adminId) => {
     if (!adminId) return;
-    if (!selectedGroup) return;
+    if (!selectedGroupCards.length) return;
     try {
       await Promise.all(
-        selectedGroup.cards.map((card) =>
+        selectedGroupCards.map((card) =>
           api.put(`/cards/${card._id}`, {
             assignedAdmin: adminId,
             type: card.type,
@@ -260,10 +271,10 @@ export default function Cards() {
   };
 
   const assignByType = async (humoAdminId, uzAdminId) => {
-    if (!selectedGroup) return;
+    if (!selectedOwner) return;
     try {
       await Promise.all(
-        selectedGroup.cards.map((card) =>
+        selectedOwner.cards.map((card) =>
           api.put(`/cards/${card._id}`, {
             assignedAdmin: card.type === 'HUMO' ? humoAdminId || null : uzAdminId || null,
             type: card.type,
@@ -351,7 +362,7 @@ export default function Cards() {
   const unassignedCount = cards.filter((card) => !card?.assignedAdmin).length;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="w-full px-4 lg:px-6 py-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Kartalar</h1>
@@ -367,7 +378,7 @@ export default function Cards() {
             + Karta qo‘shish
           </button>
           <button
-            onClick={() => setSelectedGroupKey(null)}
+            onClick={handleBackToOwners}
             className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           >
             Guruhlashni yangilash
@@ -378,7 +389,7 @@ export default function Cards() {
       {/* Tab Navigation */}
       <div className="flex gap-2 mb-6 border-b border-gray-200">
         <button
-          onClick={() => { setView('assigned'); setSelectedGroupKey(null); setSearchQuery(''); }}
+          onClick={() => { setView('assigned'); handleBackToOwners(); setSearchQuery(''); }}
           className={`px-4 py-3 font-medium border-b-2 transition-colors ${
             view === 'assigned'
               ? 'border-blue-600 text-blue-600'
@@ -464,51 +475,58 @@ export default function Cards() {
         </div>
       </div>
 
-      {!selectedGroup && (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-6">
+      {!selectedOwner && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 mb-6">
           {groupedOwners.length === 0 ? (
-            <div className="bg-white rounded-xl shadow p-8 text-center text-gray-500">
+            <div className="col-span-full bg-white rounded-xl shadow p-8 text-center text-gray-500">
               Qidiruv yoki filter bo‘yicha mos keladigan hech qanday karta topilmadi.
             </div>
           ) : (
-            groupedOwners.map((group) => (
-              <button
-                key={group.key}
-                onClick={() => setSelectedGroupKey(group.key)}
-                className="text-left bg-white rounded-2xl shadow-sm border border-gray-200 p-5 hover:shadow-lg transition-shadow"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div>
+            groupedOwners.map((group) => {
+              const humoCount = group.cards.filter((c) => c.type === 'HUMO').length;
+              const uzcardCount = group.cards.filter((c) => c.type === 'UZCARD').length;
+              return (
+                <button
+                  key={group.key}
+                  onClick={() => handleSelectOwner(group)}
+                  className="text-left bg-white rounded-2xl shadow-sm border border-gray-200 p-5 hover:shadow-lg transition-shadow"
+                >
+                  <div className="mb-3">
                     <p className="text-lg font-semibold text-gray-900">{group.cardHolderName || "Noma'lum"}</p>
                     <p className="text-xs text-gray-500">{formatPhone(group.cardHolderPhone || '') || "Noma'lum"}</p>
                   </div>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                    group.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                  }`}>
-                    {group.type}
-                  </span>
-                </div>
-                <div className="text-sm text-gray-600">
-                  {group.cards.length} ta karta
-                </div>
-              </button>
-            ))
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-gray-600">{group.cards.length} ta karta</span>
+                    {humoCount > 0 && (
+                      <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-100 text-purple-700">
+                        HUMO {humoCount}
+                      </span>
+                    )}
+                    {uzcardCount > 0 && (
+                      <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-700">
+                        UZCARD {uzcardCount}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
       )}
 
-      {selectedGroup && (
+      {selectedOwner && (
         <div className="space-y-4 mb-6">
-          <div className="flex flex-col gap-3 bg-white rounded-xl shadow p-6">
-            <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-3 bg-white rounded-xl shadow p-4 lg:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div>
-                <p className="text-sm text-gray-500">Tanlangan guruh</p>
-                <h2 className="text-xl font-semibold text-gray-900">{selectedGroup.cardHolderName || "Noma'lum"} — {selectedGroup.type}</h2>
-                <p className="text-sm text-gray-500">{formatPhone(selectedGroup.cardHolderPhone || '') || "Noma'lum"}</p>
+                <p className="text-sm text-gray-500">Tanlangan egasi</p>
+                <h2 className="text-xl font-semibold text-gray-900">{selectedOwner.cardHolderName || "Noma'lum"}</h2>
+                <p className="text-sm text-gray-500">{formatPhone(selectedOwner.cardHolderPhone || '') || "Noma'lum"}</p>
               </div>
-              <div className="flex gap-3 items-start">
+              <div className="flex gap-2 items-start flex-wrap">
                 <button
-                  onClick={() => setSelectedGroupKey(null)}
+                  onClick={handleBackToOwners}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Orqaga
@@ -522,6 +540,33 @@ export default function Cards() {
               </div>
             </div>
 
+            <div className="flex gap-2 border-b border-gray-200">
+              {selectedOwner.cards.some((c) => c.type === 'HUMO') && (
+                <button
+                  onClick={() => setSelectedTypeTab('HUMO')}
+                  className={`px-4 py-2.5 font-medium border-b-2 transition-colors ${
+                    selectedTypeTab === 'HUMO'
+                      ? 'border-purple-600 text-purple-600'
+                      : 'border-transparent text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  HUMO ({selectedOwner.cards.filter((c) => c.type === 'HUMO').length})
+                </button>
+              )}
+              {selectedOwner.cards.some((c) => c.type === 'UZCARD') && (
+                <button
+                  onClick={() => setSelectedTypeTab('UZCARD')}
+                  className={`px-4 py-2.5 font-medium border-b-2 transition-colors ${
+                    selectedTypeTab === 'UZCARD'
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  UZCARD ({selectedOwner.cards.filter((c) => c.type === 'UZCARD').length})
+                </button>
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <select
@@ -529,7 +574,7 @@ export default function Cards() {
                   onChange={(e) => setAdminAssignAll(e.target.value)}
                   className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[160px]"
                 >
-                  <option value="">Tayinlash: Barchasi</option>
+                  <option value="">Tayinlash: {selectedTypeTab}</option>
                   {admins.map((a) => (
                     <option key={a._id} value={a._id}>{a.username}</option>
                   ))}
@@ -577,44 +622,29 @@ export default function Cards() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">#</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Bank</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Karta</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
-  Karta raqami
-</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Admin</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Holat</th>
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Qabul qilingan</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Holat</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Qabul qilingan</th>
+                  <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {selectedGroup.cards.map((card, index) => (
+                {selectedGroupCards.map((card, index) => (
                   <tr
                     key={card._id}
                     className={`transition-colors ${
                       card.status === 'LIMIT_REACHED' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
                     }`}
                   >
-                    <td className="px-6 py-4 text-gray-400">{index + 1}</td>
-                    <td className="px-6 py-4 text-gray-700">{card.bankName}</td>
-                    <td className="px-6 py-4 font-mono text-gray-700">
-  <div className="flex items-center gap-2">
-    <span>{card.number}</span>
-    <button
-      onClick={() => handleCopy(card.number, card._id)}
-      className="text-xs text-gray-500 hover:text-gray-700"
-      title="Nusxalash"
-    >
-      {copied === card._id ? '✓' : '📋'}
-    </button>
-  </div>
-</td>
-                    <td className="px-6 py-4 font-mono text-gray-800">
-                      <div className="flex items-center gap-2">
+                    <td className="px-3 py-3 text-gray-400">{index + 1}</td>
+                    <td className="px-3 py-3 text-gray-700">{card.bankName}</td>
+                    <td className="px-3 py-3 font-mono text-gray-800 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
                         <span>{card.number}</span>
                         <button
                           onClick={() => handleCopy(card.number, card._id)}
@@ -625,26 +655,26 @@ export default function Cards() {
                         </button>
                       </div>
                     </td>
-                    <td className="px-6 py-4 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
-                    <td className="px-6 py-4 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
-                    <td className="px-6 py-4 text-indigo-700">{card.assignedAdmin?.username || 'Hech kimga tayinlanmagan'}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
+                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
+                    <td className="px-3 py-3 text-indigo-700">{card.assignedAdmin?.username || 'Hech kimga tayinlanmagan'}</td>
+                    <td className="px-3 py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                         card.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                       }`}>
                         {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                    <td className="px-3 py-3 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
+                    <td className="px-3 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
                         <input
                           type="number"
                           min="0"
                           value={amounts[card._id] ?? ''}
                           onChange={(e) => handleAmountChange(card._id, e.target.value)}
                           placeholder="sum"
-                          className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
+                          className="w-16 border border-gray-300 rounded px-2 py-1 text-xs"
                         />
                         <button
                           onClick={() => submitReceived(card)}
@@ -658,18 +688,18 @@ export default function Cards() {
                             onClick={() => handleReactivate(card._id)}
                             className="text-xs font-medium border border-green-600 text-green-600 hover:bg-green-600 hover:text-white px-2 py-1 rounded transition-colors"
                           >
-                            Qayta faollashtirish
+                            Faollashtirish
                           </button>
                         )}
                         <button
                           onClick={() => handleOpenEdit(card)}
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                          className="text-blue-600 hover:text-blue-800 text-xs font-medium"
                         >
-                          Tahrirlash
+                          Tahrir
                         </button>
                         <button
                           onClick={() => handleDelete(card._id)}
-                          className="text-red-600 hover:text-red-800 text-sm font-medium"
+                          className="text-red-600 hover:text-red-800 text-xs font-medium"
                         >
                           O‘chirish
                         </button>
@@ -677,10 +707,10 @@ export default function Cards() {
                     </td>
                   </tr>
                 ))}
-                {selectedGroup.cards.length === 0 && (
+                {selectedGroupCards.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-6 py-10 text-center text-gray-400 text-sm">
-                      Bu guruhda hech qanday karta yo‘q.
+                    <td colSpan={9} className="px-3 py-10 text-center text-gray-400 text-sm">
+                      Bu turdagi kartalar yo‘q.
                     </td>
                   </tr>
                 )}
@@ -778,54 +808,51 @@ export default function Cards() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">#</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Bank</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">
-  KARTA RAQAMI
-</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Karta egasi</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Admin (olingan)</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Sana</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Vaqt</th>
-                <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Balans</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta egasi</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Admin (olingan)</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Sana</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Vaqt</th>
+                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Balans</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredTakenCards.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-10 text-center text-gray-400 text-sm">
+                  <td colSpan={10} className="px-3 py-10 text-center text-gray-400 text-sm">
                     {takenCards.length === 0 ? 'Hali hech qanday karta olinmagan.' : 'Tanlangan vaqt oralig\'ida karta topilmadi.'}
                   </td>
                 </tr>
               ) : (
                 filteredTakenCards.map((card, index) => (
                   <tr key={card._id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-gray-400">{index + 1}</td>
-                    <td className="px-6 py-4 text-gray-700">{card.bankName}</td>
-                    <td className="px-6 py-4">
-  <div className="flex items-center gap-2 whitespace-nowrap">
-    <span className="font-mono tracking-wider text-gray-800">
-      {formatCardNumber(card.number)}
-    </span>
-
-    <button
-      onClick={() => handleCopy(card.number, card._id)}
-      className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
-      title="Copy"
-    >
-      {copied === card._id ? "✓" : "📋"}
-    </button>
-  </div>
-</td>
-                    <td className="px-6 py-4 text-gray-700">{card.cardHolderName}</td>
-                    <td className="px-6 py-4 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
-                    <td className="px-6 py-4 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
-                    <td className="px-6 py-4 text-indigo-700">{card.takenBy?.username || '-'}</td>
-                    <td className="px-6 py-4 text-gray-700 whitespace-nowrap">{formatDate(card.takenAt)}</td>
-                    <td className="px-6 py-4 text-gray-700 whitespace-nowrap">{formatTime(card.takenAt)}</td>
-                    <td className="px-6 py-4 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
+                    <td className="px-3 py-3 text-gray-400">{index + 1}</td>
+                    <td className="px-3 py-3 text-gray-700">{card.bankName}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-1 whitespace-nowrap">
+                        <span className="font-mono tracking-wider text-gray-800">
+                          {formatCardNumber(card.number)}
+                        </span>
+                        <button
+                          onClick={() => handleCopy(card.number, card._id)}
+                          className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+                          title="Copy"
+                        >
+                          {copied === card._id ? "✓" : "📋"}
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-gray-700">{card.cardHolderName}</td>
+                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
+                    <td className="px-3 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
+                    <td className="px-3 py-3 text-indigo-700">{card.takenBy?.username || '-'}</td>
+                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatDate(card.takenAt)}</td>
+                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatTime(card.takenAt)}</td>
+                    <td className="px-3 py-3 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
                   </tr>
                 ))
               )}
@@ -870,7 +897,6 @@ export default function Cards() {
                             ...form,
                             cardHolderName: g.cardHolderName || '',
                             cardHolderPhone: formatPhone(g.cardHolderPhone || ''),
-                            type: g.type || form.type,
                           });
                         }
                       }}
@@ -879,7 +905,7 @@ export default function Cards() {
                     >
                       <option value="">Yangi egani kiritish</option>
                       {groupedOwners.map((g) => (
-                        <option key={g.key} value={g.key}>{g.cardHolderName} — {g.cardHolderPhone} ({g.type})</option>
+                        <option key={g.key} value={g.key}>{g.cardHolderName} — {formatPhone(g.cardHolderPhone || '')}</option>
                       ))}
                     </select>
                   </div>
