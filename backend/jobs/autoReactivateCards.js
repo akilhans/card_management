@@ -15,6 +15,7 @@ const autoReactivateCards = async () => {
         status: 'ACTIVE',
         receivedAmount: 0,
         limitReachedAt: null,
+        assignedAdmin: null,
         taken: false,
         takenBy: null,
         takenAt: null,
