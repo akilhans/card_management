@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const cardSchema = new mongoose.Schema({
   assignedAdmin: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  department: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', default: null },
   type: { type: String, enum: ['HUMO', 'UZCARD'], required: true },
   number: { type: String, required: true, trim: true },
   expiryDate: { type: String, required: true, trim: true },

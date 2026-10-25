@@ -5,19 +5,41 @@ const Setting = require('../models/Setting');
 const { auth, superAdmin } = require('../middleware/auth');
 
 const populateCard = (query) =>
-  query.populate('assignedAdmin', 'username').populate('takenBy', 'username');
+  query
+    .populate('assignedAdmin', 'username')
+    .populate('takenBy', 'username')
+    .populate('department', 'name');
+
+const cleanId = (id) => {
+  if (!id || id === '' || id === 'none' || id === 'null') return null;
+  if (typeof id === 'object' && id._id) return id._id;
+  return id;
+};
 
 router.get('/', auth, async (req, res) => {
   try {
     if (req.user.role === 'super_admin') {
       const filter = {};
       if (req.query.admin) filter.assignedAdmin = req.query.admin;
+      if (req.query.department) {
+        if (req.query.department === 'none' || req.query.department === 'null') {
+          filter.department = null;
+        } else if (req.query.department !== 'all') {
+          filter.department = req.query.department;
+        }
+      }
       const cards = await populateCard(Card.find(filter)).sort({ createdAt: -1 });
       return res.json(cards);
     }
-    const cards = await populateCard(
-      Card.find({ assignedAdmin: req.user.id, taken: false })
-    ).sort({ createdAt: -1 });
+    const filter = { assignedAdmin: req.user.id, taken: false };
+    if (req.query.department) {
+      if (req.query.department === 'none' || req.query.department === 'null') {
+        filter.department = null;
+      } else if (req.query.department !== 'all') {
+        filter.department = req.query.department;
+      }
+    }
+    const cards = await populateCard(Card.find(filter)).sort({ createdAt: -1 });
     res.json(cards);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -52,11 +74,12 @@ router.get('/my-used', auth, async (req, res) => {
 
 router.post('/', auth, superAdmin, async (req, res) => {
   try {
-    const { assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone } = req.body;
+    const { assignedAdmin, department, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone } = req.body;
     if (!type || !number || !expiryDate || !bankName || !cardHolderName || !cardHolderPhone)
       return res.status(400).json({ message: 'Tur, raqam, amal qilish muddati, bank nomi, F.I.Sh. va telefon raqami kiritilishi shart' });
     const card = await Card.create({
-      assignedAdmin: assignedAdmin || null,
+      assignedAdmin: cleanId(assignedAdmin),
+      department: cleanId(department),
       type,
       number,
       expiryDate,
@@ -73,21 +96,21 @@ router.post('/', auth, superAdmin, async (req, res) => {
 
 router.put('/:id', auth, superAdmin, async (req, res) => {
   try {
-    const { assignedAdmin, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone } = req.body;
+    const { assignedAdmin, department, type, number, expiryDate, bankName, cardHolderName, cardHolderPhone } = req.body;
+    const updateData = {
+      assignedAdmin: cleanId(assignedAdmin),
+      type,
+      number,
+      expiryDate,
+      bankName,
+      cardHolderName,
+      cardHolderPhone,
+    };
+    if (department !== undefined) {
+      updateData.department = cleanId(department);
+    }
     const card = await populateCard(
-      Card.findByIdAndUpdate(
-        req.params.id,
-        {
-          assignedAdmin: assignedAdmin || null,
-          type,
-          number,
-          expiryDate,
-          bankName,
-          cardHolderName,
-          cardHolderPhone,
-        },
-        { new: true }
-      )
+      Card.findByIdAndUpdate(req.params.id, updateData, { new: true })
     );
     if (!card) return res.status(404).json({ message: 'Karta topilmadi' });
     res.json(card);
@@ -100,6 +123,40 @@ router.delete('/:id', auth, superAdmin, async (req, res) => {
   try {
     await Card.findByIdAndDelete(req.params.id);
     res.json({ message: 'Karta o\'chirildi' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Guruh kartalarini bo'limga biriktirish
+router.patch('/batch/department', auth, superAdmin, async (req, res) => {
+  try {
+    const { cardIds, departmentId } = req.body;
+    if (!Array.isArray(cardIds) || cardIds.length === 0) {
+      return res.status(400).json({ message: 'Kartalar tanlanmagan' });
+    }
+    await Card.updateMany(
+      { _id: { $in: cardIds } },
+      { $set: { department: cleanId(departmentId) } }
+    );
+    res.json({ message: 'Kartalar bo\'limi yangilandi' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Guruh kartalarini adminga biriktirish
+router.patch('/batch/admin', auth, superAdmin, async (req, res) => {
+  try {
+    const { cardIds, adminId } = req.body;
+    if (!Array.isArray(cardIds) || cardIds.length === 0) {
+      return res.status(400).json({ message: 'Kartalar tanlanmagan' });
+    }
+    await Card.updateMany(
+      { _id: { $in: cardIds } },
+      { $set: { assignedAdmin: cleanId(adminId) } }
+    );
+    res.json({ message: 'Kartalar admini yangilandi' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

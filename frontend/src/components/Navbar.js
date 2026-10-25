@@ -32,8 +32,7 @@ export default function Navbar() {
 
         {user?.role === 'admin' && (
           <>
-            <Link to="/admin/humo" className={`px-3 py-2 rounded text-sm font-medium transition-colors ${isActive('/admin/humo')}`}>Humo</Link>
-            <Link to="/admin/uzcard" className={`px-3 py-2 rounded text-sm font-medium transition-colors ${isActive('/admin/uzcard')}`}>Uzcard</Link>
+            <Link to="/admin/cards" className={`px-3 py-2 rounded text-sm font-medium transition-colors ${isActive('/admin/cards')}`}>Kartalar</Link>
           </>
         )}
       </div>

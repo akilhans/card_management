@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../../api/axios';
- 
 
 const emptyForm = {
   assignedAdmin: '',
+  department: '',
   type: 'HUMO',
   number: '',
   expiryDate: '',
@@ -32,7 +32,6 @@ const formatTime = (dateString) => {
   });
 };
 
-
 const formatExpiry = (val) => {
   if (!val) return '';
   const v = String(val);
@@ -54,19 +53,35 @@ const formatPhone = (val) => {
   const v = String(val);
   let digits = v.replace(/\D/g, '');
   if (digits.startsWith('998')) digits = digits.slice(3);
-  if (digits.startsWith('0') && digits.length === 10) digits = digits.slice(1); // optional
-  // progressive formatting
+  if (digits.startsWith('0') && digits.length === 10) digits = digits.slice(1);
   if (digits.length <= 2) return digits;
-  if (digits.length <= 5) return digits.slice(0,2) + ' ' + digits.slice(2);
-  if (digits.length <= 7) return digits.slice(0,2) + ' ' + digits.slice(2,5) + ' ' + digits.slice(5);
-  // up to 9
-  return digits.slice(0,2) + ' ' + digits.slice(2,5) + ' ' + digits.slice(5,7) + (digits.length > 7 ? ' ' + digits.slice(7,9) : '');
+  if (digits.length <= 5) return digits.slice(0, 2) + ' ' + digits.slice(2);
+  if (digits.length <= 7) return digits.slice(0, 2) + ' ' + digits.slice(2, 5) + ' ' + digits.slice(5);
+  return digits.slice(0, 2) + ' ' + digits.slice(2, 5) + ' ' + digits.slice(5, 7) + (digits.length > 7 ? ' ' + digits.slice(7, 9) : '');
+};
+
+const formatCardNumber = (number) => {
+  if (!number) return '';
+  return String(number)
+    .replace(/\D/g, '')
+    .replace(/(.{4})/g, '$1 ')
+    .trim();
 };
 
 export default function Cards() {
   const [cards, setCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
   const [admins, setAdmins] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [selectedDepartment, setSelectedDepartment] = useState('all'); // 'all', deptId, 'none'
+  const [batchDeptId, setBatchDeptId] = useState('');
+
+  // Department modal state
+  const [showDeptModal, setShowDeptModal] = useState(false);
+  const [editingDept, setEditingDept] = useState(null);
+  const [deptName, setDeptName] = useState('');
+  const [deptError, setDeptError] = useState('');
+
   const [adminAssignAll, setAdminAssignAll] = useState('');
   const [adminAssignHumo, setAdminAssignHumo] = useState('');
   const [adminAssignUzcard, setAdminAssignUzcard] = useState('');
@@ -103,6 +118,15 @@ export default function Cards() {
     }
   }, []);
 
+  const fetchDepartments = useCallback(async () => {
+    try {
+      const res = await api.get('/departments');
+      setDepartments(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
   const fetchCards = useCallback(async () => {
     try {
       const res = await api.get('/cards');
@@ -123,9 +147,10 @@ export default function Cards() {
 
   useEffect(() => {
     fetchAdmins();
+    fetchDepartments();
     fetchCards();
     fetchTakenCards();
-  }, [fetchAdmins, fetchCards, fetchTakenCards]);
+  }, [fetchAdmins, fetchDepartments, fetchCards, fetchTakenCards]);
 
   const handleAmountChange = (cardId, val) => {
     setAmounts((s) => ({ ...s, [cardId]: val }));
@@ -144,10 +169,69 @@ export default function Cards() {
     }
   };
 
-  // Egalari bo'yicha barcha guruhlar (barcha kartalar tahlil qilinadi)
+  // Department CRUD Handlers
+  const handleOpenCreateDept = () => {
+    setEditingDept(null);
+    setDeptName('');
+    setDeptError('');
+    setShowDeptModal(true);
+  };
+
+  const handleOpenEditDept = (dept) => {
+    setEditingDept(dept);
+    setDeptName(dept.name);
+    setDeptError('');
+    setShowDeptModal(true);
+  };
+
+  const handleSaveDept = async (e) => {
+    e.preventDefault();
+    setDeptError('');
+    try {
+      if (editingDept) {
+        await api.put(`/departments/${editingDept._id}`, { name: deptName });
+      } else {
+        await api.post('/departments', { name: deptName });
+      }
+      setShowDeptModal(false);
+      fetchDepartments();
+      fetchCards();
+    } catch (err) {
+      setDeptError(err.response?.data?.message || 'Bo\'limni saqlashda xatolik yuz berdi');
+    }
+  };
+
+  const handleDeleteDept = async (dept) => {
+    if (!window.confirm(`"${dept.name}" bo'limini o'chirishni xohlaysizmi? Bu bo'limdagi kartalar bo'limsiz holatga o'tadi.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/departments/${dept._id}`);
+      if (selectedDepartment === dept._id) {
+        setSelectedDepartment('all');
+      }
+      fetchDepartments();
+      fetchCards();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Bo\'limni o\'chirishda xatolik');
+    }
+  };
+
+  // Bo'lim bo'yicha filtrlangan kartalar
+  const departmentFilteredCards = useMemo(() => {
+    if (selectedDepartment === 'all') return cards;
+    if (selectedDepartment === 'none') {
+      return cards.filter((c) => !c.department);
+    }
+    return cards.filter(
+      (c) => c.department?._id === selectedDepartment || c.department === selectedDepartment
+    );
+  }, [cards, selectedDepartment]);
+
+  // Egalari bo'yicha guruhlar
   const allOwnerGroups = useMemo(() => {
     const groups = {};
-    cards.forEach((card) => {
+    departmentFilteredCards.forEach((card) => {
       const key = formatOwnerKey(card);
       if (!groups[key]) {
         groups[key] = {
@@ -166,21 +250,37 @@ export default function Cards() {
       if (nameA > nameB) return 1;
       return 0;
     });
+  }, [departmentFilteredCards]);
+
+  // Barcha kartalar bo'yicha egasi guruhlari (modal tanlash uchun)
+  const fullOwnerGroups = useMemo(() => {
+    const groups = {};
+    cards.forEach((card) => {
+      const key = formatOwnerKey(card);
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          cardHolderName: card.cardHolderName,
+          cardHolderPhone: card.cardHolderPhone,
+          cards: [],
+        };
+      }
+      groups[key].cards.push(card);
+    });
+    return Object.values(groups);
   }, [cards]);
 
-  // Shart: Guruhdagi BARCHA kartalar to'liq limitga yetgan bo'lsa (masalan 13/13).
-  // Agar 13 tadan 12 tasi limit yetib, 1 tasi aktiv bo'lsa ham - false qaytadi!
+  // Shart: Guruhdagi BARCHA kartalar to'liq limitga yetgan bo'lsa
   const isGroupFullyLimited = useCallback((group) => {
     return group.cards.length > 0 && group.cards.every((c) => c.status === 'LIMIT_REACHED');
   }, []);
 
-  // Guruhlarni ajratish:
-  // 1. Aktiv guruhlar: kamida 1 ta aktiv kartasi bor bo'lgan (to'liq limit yetmagan) guruhlar
+  // 1. Aktiv guruhlar: kamida 1 ta aktiv kartasi bor bo'lgan guruhlar
   const rawActiveGroups = useMemo(() => {
     return allOwnerGroups.filter((g) => !isGroupFullyLimited(g));
   }, [allOwnerGroups, isGroupFullyLimited]);
 
-  // 2. Limit bo'lgan guruhlar: 13/13 barcha kartalari to'liq limitga yetgan guruhlar
+  // 2. Limit bo'lgan guruhlar: barcha kartalari to'liq limitga yetgan guruhlar
   const rawLimitGroups = useMemo(() => {
     return allOwnerGroups.filter((g) => isGroupFullyLimited(g));
   }, [allOwnerGroups, isGroupFullyLimited]);
@@ -193,6 +293,10 @@ export default function Cards() {
   const limitCardsCount = useMemo(() => {
     return rawLimitGroups.reduce((sum, g) => sum + g.cards.length, 0);
   }, [rawLimitGroups]);
+
+  const unassignedDeptCount = useMemo(() => {
+    return cards.filter((c) => !c.taken && !c.department).length;
+  }, [cards]);
 
   // Aktiv guruhlar qidiruv va filter
   const filteredActiveGroups = useMemo(() => {
@@ -210,7 +314,8 @@ export default function Cards() {
         (c) =>
           String(c.number || '').toLowerCase().includes(q) ||
           String(c.bankName || '').toLowerCase().includes(q) ||
-          String(c.assignedAdmin?.username || '').toLowerCase().includes(q)
+          String(c.assignedAdmin?.username || '').toLowerCase().includes(q) ||
+          String(c.department?.name || '').toLowerCase().includes(q)
       );
     });
   }, [rawActiveGroups, searchQuery, statusFilter]);
@@ -235,7 +340,8 @@ export default function Cards() {
         (c) =>
           String(c.number || '').toLowerCase().includes(q) ||
           String(c.bankName || '').toLowerCase().includes(q) ||
-          String(c.assignedAdmin?.username || '').toLowerCase().includes(q)
+          String(c.assignedAdmin?.username || '').toLowerCase().includes(q) ||
+          String(c.department?.name || '').toLowerCase().includes(q)
       );
     });
   }, [rawLimitGroups, limitSearchQuery]);
@@ -271,7 +377,10 @@ export default function Cards() {
 
   const handleOpenCreate = () => {
     setEditing(null);
-    setForm({ ...emptyForm });
+    setForm({
+      ...emptyForm,
+      department: selectedDepartment !== 'all' && selectedDepartment !== 'none' ? selectedDepartment : '',
+    });
     setError('');
     setShowModal(true);
   };
@@ -279,7 +388,8 @@ export default function Cards() {
   const handleOpenEdit = (card) => {
     setEditing(card);
     setForm({
-      assignedAdmin: card.assignedAdmin?._id || '',
+      assignedAdmin: card.assignedAdmin?._id || card.assignedAdmin || '',
+      department: card.department?._id || card.department || '',
       type: card.type,
       number: card.number,
       expiryDate: card.expiryDate || '',
@@ -291,21 +401,13 @@ export default function Cards() {
     setShowModal(true);
   };
 
-  const formatCardNumber = (number) => {
-    if (!number) return "";
-  
-    return String(number)
-      .replace(/\D/g, "")
-      .replace(/(.{4})/g, "$1 ")
-      .trim();
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     const payload = {
       ...form,
       assignedAdmin: form.assignedAdmin || null,
+      department: form.department || null,
     };
     try {
       if (editing) {
@@ -326,22 +428,12 @@ export default function Cards() {
     if (!adminId) return;
     if (!selectedGroupCards.length) return;
     try {
-      await Promise.all(
-        selectedGroupCards.map((card) =>
-          api.put(`/cards/${card._id}`, {
-            assignedAdmin: adminId,
-            type: card.type,
-            number: card.number,
-            expiryDate: card.expiryDate || '',
-            bankName: card.bankName || '',
-            cardHolderName: card.cardHolderName || '',
-            cardHolderPhone: card.cardHolderPhone || '',
-          })
-        )
-      );
+      const cardIds = selectedGroupCards.map((c) => c._id);
+      await api.patch('/cards/batch/admin', { cardIds, adminId });
       fetchCards();
     } catch (err) {
       console.error(err);
+      alert('Adminni tayinlashda xatolik');
     }
   };
 
@@ -352,6 +444,7 @@ export default function Cards() {
         selectedOwner.cards.map((card) =>
           api.put(`/cards/${card._id}`, {
             assignedAdmin: card.type === 'HUMO' ? humoAdminId || null : uzAdminId || null,
+            department: card.department?._id || card.department || null,
             type: card.type,
             number: card.number,
             expiryDate: card.expiryDate || '',
@@ -364,6 +457,24 @@ export default function Cards() {
       fetchCards();
     } catch (err) {
       console.error(err);
+      alert('Turi bo\'yicha tayinlashda xatolik');
+    }
+  };
+
+  const handleBatchAssignDept = async () => {
+    if (!batchDeptId) return alert('Iltimos, bo\'limni tanlang');
+    if (!selectedOwner || !selectedOwner.cards.length) return;
+    try {
+      const cardIds = selectedOwner.cards.map((c) => c._id);
+      await api.patch('/cards/batch/department', {
+        cardIds,
+        departmentId: batchDeptId === 'none' ? null : batchDeptId,
+      });
+      fetchCards();
+      alert('Egasi barcha kartalari tanlangan bo\'limga biriktirildi');
+      setBatchDeptId('');
+    } catch (err) {
+      alert(err.response?.data?.message || 'Bo\'limga biriktirishda xatolik');
     }
   };
 
@@ -451,9 +562,8 @@ export default function Cards() {
   };
 
   const filteredTakenCards = getFilteredTakenCards();
-
   const ownerCount = rawActiveGroups.length;
-  const unassignedCount = cards.filter((card) => !card?.assignedAdmin && !card.taken).length;
+  const unassignedCount = departmentFilteredCards.filter((card) => !card?.assignedAdmin && !card.taken).length;
 
   return (
     <div className="w-full px-4 lg:px-6 py-6">
@@ -461,10 +571,16 @@ export default function Cards() {
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Kartalar</h1>
           <p className="text-sm text-gray-600 mt-1">
-            Kartalar egalar bo‘yicha guruhlangan. Sahifada karta raqamlari yashirilgan.
+            Kartalar bo'limlar va egalar bo‘yicha guruhlangan. Sahifada karta raqamlari yashirilgan.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
+          <button
+            onClick={handleOpenCreateDept}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            + Bo'lim qo'shish
+          </button>
           <button
             onClick={handleOpenCreate}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
@@ -480,8 +596,8 @@ export default function Cards() {
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex gap-2 mb-6 border-b border-gray-200">
+      {/* Main Views Navigation */}
+      <div className="flex gap-2 mb-4 border-b border-gray-200">
         <button
           onClick={() => { setView('active'); handleBackToOwners(); setSearchQuery(''); }}
           className={`px-4 py-3 font-medium border-b-2 transition-colors ${
@@ -514,6 +630,98 @@ export default function Cards() {
         </button>
       </div>
 
+      {/* Bo'limlar (Departments) Navigation Pills */}
+      {(view === 'active' || view === 'limit') && (
+        <div className="bg-white rounded-xl shadow-sm p-3 mb-6 border border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 overflow-x-auto py-1 scrollbar-thin">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider mr-1">Bo'limlar:</span>
+            
+            <button
+              type="button"
+              onClick={() => { setSelectedDepartment('all'); setActivePage(1); handleBackToOwners(); }}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                selectedDepartment === 'all'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              <span>Barcha kartalar</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${selectedDepartment === 'all' ? 'bg-blue-700 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                {cards.filter((c) => !c.taken).length}
+              </span>
+            </button>
+
+            {departments.map((dept) => {
+              const count = cards.filter(
+                (c) => !c.taken && (c.department?._id === dept._id || c.department === dept._id)
+              ).length;
+              const isSelected = selectedDepartment === dept._id;
+              return (
+                <div key={dept._id} className="relative group flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedDepartment(dept._id); setActivePage(1); handleBackToOwners(); }}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white shadow-sm'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <span>{dept.name}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${isSelected ? 'bg-indigo-700 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                      {count}
+                    </span>
+                  </button>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center ml-1">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleOpenEditDept(dept); }}
+                      title="Nomini o'zgartirish"
+                      className="p-1 text-gray-400 hover:text-blue-600 rounded text-xs"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleDeleteDept(dept); }}
+                      title="Bo'limni o'chirish"
+                      className="p-1 text-gray-400 hover:text-red-600 rounded text-xs"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {unassignedDeptCount > 0 && (
+              <button
+                type="button"
+                onClick={() => { setSelectedDepartment('none'); setActivePage(1); handleBackToOwners(); }}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                  selectedDepartment === 'none'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <span>Bo'limsiz</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${selectedDepartment === 'none' ? 'bg-amber-700 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                  {unassignedDeptCount}
+                </span>
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleOpenCreateDept}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-dashed border-indigo-500 text-indigo-600 hover:bg-indigo-50 transition-colors whitespace-nowrap"
+          >
+            + Bo'lim qo'shish
+          </button>
+        </div>
+      )}
+
       {/* 1. AKTIV KARTALAR SECTION */}
       {view === 'active' && (
         <>
@@ -528,7 +736,7 @@ export default function Cards() {
                     setSearchQuery(e.target.value);
                     setActivePage(1);
                   }}
-                  placeholder="Karta raqami, egasi yoki telefon..."
+                  placeholder="Karta raqami, egasi, telefon yoki bo'lim..."
                   className="w-full border border-gray-300 rounded-lg pl-9 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
@@ -608,7 +816,7 @@ export default function Cards() {
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 mb-6">
                 {filteredActiveGroups.length === 0 ? (
                   <div className="col-span-full bg-white rounded-xl shadow p-8 text-center text-gray-500">
-                    Qidiruv yoki filter bo‘yicha aktiv karta topilmadi.
+                    Qidiruv yoki tanlangan bo'lim bo‘yicha faol karta topilmadi.
                   </div>
                 ) : (
                   paginatedActiveGroups.map((group) => {
@@ -617,28 +825,52 @@ export default function Cards() {
                     const reachedCount = group.cards.filter((c) => c.status === 'LIMIT_REACHED').length;
                     const activeCount = group.cards.filter((c) => c.status === 'ACTIVE').length;
 
+                    // Guruhdagi bo'lim nomlari
+                    const deptNames = Array.from(
+                      new Set(group.cards.map((c) => c.department?.name).filter(Boolean))
+                    );
+
                     return (
                       <button
                         key={group.key}
                         onClick={() => handleSelectOwner(group)}
-                        className="text-left bg-white rounded-2xl shadow-sm border border-gray-200 p-5 hover:shadow-lg hover:border-blue-300 transition-all"
+                        className="text-left bg-white rounded-2xl shadow-sm border border-gray-200 p-5 hover:shadow-lg hover:border-blue-300 transition-all flex flex-col justify-between"
                       >
-                        <div className="mb-3">
-                          <p className="text-lg font-semibold text-gray-900">{group.cardHolderName || "Noma'lum"}</p>
-                          <p className="text-xs text-gray-500">{formatPhone(group.cardHolderPhone || '') || "Noma'lum"}</p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap mb-2">
-                          <span className="text-sm font-medium text-gray-700">{group.cards.length} ta karta</span>
-                          {reachedCount > 0 && (
-                            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
-                              {reachedCount} ta limit
+                        <div>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div>
+                              <p className="text-lg font-semibold text-gray-900">{group.cardHolderName || "Noma'lum"}</p>
+                              <p className="text-xs text-gray-500">{formatPhone(group.cardHolderPhone || '') || "Noma'lum"}</p>
+                            </div>
+                            {deptNames.length > 0 ? (
+                              <div className="flex flex-wrap gap-1 justify-end">
+                                {deptNames.map((dName) => (
+                                  <span key={dName} className="px-2 py-0.5 text-[11px] font-semibold rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    {dName}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="px-2 py-0.5 text-[11px] font-medium rounded bg-gray-100 text-gray-600">
+                                Bo'limsiz
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap mb-2">
+                            <span className="text-sm font-medium text-gray-700">{group.cards.length} ta karta</span>
+                            {reachedCount > 0 && (
+                              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
+                                {reachedCount} ta limit
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">
+                              {activeCount} ta faol
                             </span>
-                          )}
-                          <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">
-                            {activeCount} ta faol
-                          </span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
+
+                        <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-gray-100">
                           {humoCount > 0 && (
                             <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-100 text-purple-700">
                               HUMO {humoCount}
@@ -711,7 +943,7 @@ export default function Cards() {
 
           {selectedOwner && (
             <div className="space-y-4 mb-6">
-              <div className="flex flex-col gap-3 bg-white rounded-xl shadow p-4 lg:p-6">
+              <div className="flex flex-col gap-4 bg-white rounded-xl shadow p-4 lg:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div>
                     <p className="text-sm text-gray-500">Tanlangan egasi</p>
@@ -734,6 +966,85 @@ export default function Cards() {
                   </div>
                 </div>
 
+                {/* Bo'limga biriktirish va Admin tayinlash boshqaruv paneli */}
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-gray-800">
+                      Bo'limga biriktirish (Egasi barcha {selectedOwner.cards.length} ta kartasi):
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={batchDeptId}
+                        onChange={(e) => setBatchDeptId(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[180px]"
+                      >
+                        <option value="">Bo'limni tanlang...</option>
+                        <option value="none">Bo'limsiz holatga o'tkazish</option>
+                        {departments.map((d) => (
+                          <option key={d._id} value={d._id}>{d.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={handleBatchAssignDept}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                      >
+                        Bo'limga biriktirish
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-3 flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <select
+                        value={adminAssignAll}
+                        onChange={(e) => setAdminAssignAll(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[160px]"
+                      >
+                        <option value="">Admin: {selectedTypeTab}</option>
+                        {admins.map((a) => (
+                          <option key={a._id} value={a._id}>{a.username}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => assignAllTo(adminAssignAll)}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm whitespace-nowrap font-medium"
+                      >
+                        {selectedTypeTab} ga tayinlash
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <select
+                        value={adminAssignHumo}
+                        onChange={(e) => setAdminAssignHumo(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[150px]"
+                      >
+                        <option value="">HUMO admini</option>
+                        {admins.map((a) => (
+                          <option key={a._id} value={a._id}>{a.username}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={adminAssignUzcard}
+                        onChange={(e) => setAdminAssignUzcard(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[150px]"
+                      >
+                        <option value="">UZCARD admini</option>
+                        {admins.map((a) => (
+                          <option key={a._id} value={a._id}>{a.username}</option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => assignByType(adminAssignHumo, adminAssignUzcard)}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm whitespace-nowrap font-medium"
+                      >
+                        Turi bo'yicha tayinlash
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-tabs: Humo / Uzcard */}
                 <div className="flex gap-2 border-b border-gray-200">
                   {selectedOwner.cards.some((c) => c.type === 'HUMO') && (
                     <button
@@ -760,56 +1071,6 @@ export default function Cards() {
                     </button>
                   )}
                 </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <select
-                      value={adminAssignAll}
-                      onChange={(e) => setAdminAssignAll(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[160px]"
-                    >
-                      <option value="">Tayinlash: {selectedTypeTab}</option>
-                      {admins.map((a) => (
-                        <option key={a._id} value={a._id}>{a.username}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => assignAllTo(adminAssignAll)}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm whitespace-nowrap"
-                    >
-                      Barchasini tayinlash
-                    </button>
-                  </div>
-
-                  <div className="w-full border-t border-gray-100 mt-3 pt-3 sm:mt-0 sm:pt-0 sm:flex sm:items-center sm:gap-2">
-                    <select
-                      value={adminAssignHumo}
-                      onChange={(e) => setAdminAssignHumo(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[160px]"
-                    >
-                      <option value="">HUMO uchun admin</option>
-                      {admins.map((a) => (
-                        <option key={a._id} value={a._id}>{a.username}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={adminAssignUzcard}
-                      onChange={(e) => setAdminAssignUzcard(e.target.value)}
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm min-w-[160px]"
-                    >
-                      <option value="">UZCARD uchun admin</option>
-                      {admins.map((a) => (
-                        <option key={a._id} value={a._id}>{a.username}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => assignByType(adminAssignHumo, adminAssignUzcard)}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm whitespace-nowrap"
-                    >
-                      Turi bo'yicha tayinlash
-                    </button>
-                  </div>
-                </div>
               </div>
 
               <div className="bg-white rounded-xl shadow overflow-x-auto">
@@ -819,6 +1080,7 @@ export default function Cards() {
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bo'lim</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
@@ -848,6 +1110,11 @@ export default function Cards() {
                               {copied === card._id ? '✓' : '📋'}
                             </button>
                           </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            {card.department?.name || 'Bo\'limsiz'}
+                          </span>
                         </td>
                         <td className="px-3 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
                         <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
@@ -903,7 +1170,7 @@ export default function Cards() {
                     ))}
                     {selectedGroupCards.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="px-3 py-10 text-center text-gray-400 text-sm">
+                        <td colSpan={10} className="px-3 py-10 text-center text-gray-400 text-sm">
                           Bu turdagi kartalar yo‘q.
                         </td>
                       </tr>
@@ -1166,6 +1433,7 @@ export default function Cards() {
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bo'lim</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
@@ -1190,6 +1458,11 @@ export default function Cards() {
                               {copied === card._id ? '✓' : '📋'}
                             </button>
                           </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 border border-red-200">
+                            {card.department?.name || 'Bo\'limsiz'}
+                          </span>
                         </td>
                         <td className="px-3 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
                         <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
@@ -1227,7 +1500,7 @@ export default function Cards() {
                     ))}
                     {selectedGroupCards.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="px-3 py-10 text-center text-gray-400 text-sm">
+                        <td colSpan={10} className="px-3 py-10 text-center text-gray-400 text-sm">
                           Bu turdagi kartalar yo‘q.
                         </td>
                       </tr>
@@ -1241,10 +1514,8 @@ export default function Cards() {
       )}
 
       {/* 3. OLINGAN KARTALAR SECTION */}
-
       {view === 'taken' && (
         <>
-          {/* Filter Controls */}
           <div className="bg-white rounded-xl shadow p-4 mb-6">
             <p className="text-sm font-medium text-gray-700 mb-3">Vaqt bo'yicha filter</p>
             <div className="flex flex-wrap gap-2 mb-4">
@@ -1324,64 +1595,71 @@ export default function Cards() {
             )}
           </div>
 
-        <div className="bg-white rounded-xl shadow overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta egasi</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Admin (olingan)</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Sana</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Vaqt</th>
-                <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Balans</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filteredTakenCards.length === 0 ? (
+          <div className="bg-white rounded-xl shadow overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <td colSpan={10} className="px-3 py-10 text-center text-gray-400 text-sm">
-                    {takenCards.length === 0 ? 'Hali hech qanday karta olinmagan.' : 'Tanlangan vaqt oralig\'ida karta topilmadi.'}
-                  </td>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta egasi</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bo'lim</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Admin (olingan)</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Sana</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Vaqt</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Balans</th>
                 </tr>
-              ) : (
-                filteredTakenCards.map((card, index) => (
-                  <tr key={card._id} className="hover:bg-gray-50">
-                    <td className="px-3 py-3 text-gray-400">{index + 1}</td>
-                    <td className="px-3 py-3 text-gray-700">{card.bankName}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-1 whitespace-nowrap">
-                        <span className="font-mono tracking-wider text-gray-800">
-                          {formatCardNumber(card.number)}
-                        </span>
-                        <button
-                          onClick={() => handleCopy(card.number, card._id)}
-                          className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
-                          title="Copy"
-                        >
-                          {copied === card._id ? "✓" : "📋"}
-                        </button>
-                      </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredTakenCards.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="px-3 py-10 text-center text-gray-400 text-sm">
+                      {takenCards.length === 0 ? 'Hali hech qanday karta olinmagan.' : 'Tanlangan vaqt oralig\'ida karta topilmadi.'}
                     </td>
-                    <td className="px-3 py-3 text-gray-700">{card.cardHolderName}</td>
-                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
-                    <td className="px-3 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
-                    <td className="px-3 py-3 text-indigo-700">{card.takenBy?.username || '-'}</td>
-                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatDate(card.takenAt)}</td>
-                    <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatTime(card.takenAt)}</td>
-                    <td className="px-3 py-3 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  filteredTakenCards.map((card, index) => (
+                    <tr key={card._id} className="hover:bg-gray-50">
+                      <td className="px-3 py-3 text-gray-400">{index + 1}</td>
+                      <td className="px-3 py-3 text-gray-700">{card.bankName}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-1 whitespace-nowrap">
+                          <span className="font-mono tracking-wider text-gray-800">
+                            {formatCardNumber(card.number)}
+                          </span>
+                          <button
+                            onClick={() => handleCopy(card.number, card._id)}
+                            className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 bg-white text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+                            title="Copy"
+                          >
+                            {copied === card._id ? "✓" : "📋"}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-gray-700">{card.cardHolderName}</td>
+                      <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
+                      <td className="px-3 py-3">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                          {card.department?.name || 'Bo\'limsiz'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
+                      <td className="px-3 py-3 text-indigo-700">{card.takenBy?.username || '-'}</td>
+                      <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatDate(card.takenAt)}</td>
+                      <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatTime(card.takenAt)}</td>
+                      <td className="px-3 py-3 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 
+      {/* Karta qo'shish / tahrirlash modali */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
@@ -1392,6 +1670,20 @@ export default function Cards() {
               <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg mb-4 text-sm">{error}</div>
             )}
             <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bo'lim (Department)</label>
+                <select
+                  value={form.department}
+                  onChange={(e) => setForm({ ...form, department: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Bo'limsiz</option>
+                  {departments.map((d) => (
+                    <option key={d._id} value={d._id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tayinlangan admin</label>
                 <select
@@ -1405,31 +1697,33 @@ export default function Cards() {
                   ))}
                 </select>
               </div>
-                {!editing && allOwnerGroups.length > 0 && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Mavjud egalarni tanlash</label>
-                    <select
-                      onChange={(e) => {
-                        const key = e.target.value;
-                        const g = allOwnerGroups.find((x) => x.key === key);
-                        if (g) {
-                          setForm({
-                            ...form,
-                            cardHolderName: g.cardHolderName || '',
-                            cardHolderPhone: formatPhone(g.cardHolderPhone || ''),
-                          });
-                        }
-                      }}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      defaultValue=""
-                    >
-                      <option value="">Yangi egani kiritish</option>
-                      {allOwnerGroups.map((g) => (
-                        <option key={g.key} value={g.key}>{g.cardHolderName} — {formatPhone(g.cardHolderPhone || '')}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+
+              {!editing && fullOwnerGroups.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Mavjud egalarni tanlash</label>
+                  <select
+                    onChange={(e) => {
+                      const key = e.target.value;
+                      const g = fullOwnerGroups.find((x) => x.key === key);
+                      if (g) {
+                        setForm({
+                          ...form,
+                          cardHolderName: g.cardHolderName || '',
+                          cardHolderPhone: formatPhone(g.cardHolderPhone || ''),
+                        });
+                      }
+                    }}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    defaultValue=""
+                  >
+                    <option value="">Yangi egani kiritish</option>
+                    {fullOwnerGroups.map((g) => (
+                      <option key={g.key} value={g.key}>{g.cardHolderName} — {formatPhone(g.cardHolderPhone || '')}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Karta turi</label>
                 <select
@@ -1510,6 +1804,49 @@ export default function Cards() {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
                 >
                   {editing ? 'O‘zgarishlarni saqlash' : 'Karta qo‘shish'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Bo'lim qo'shish / tahrirlash modali */}
+      {showDeptModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">
+              {editingDept ? 'Bo\'lim nomini tahrirlash' : 'Yangi bo\'lim qo\'shish'}
+            </h2>
+            {deptError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg mb-4 text-sm">{deptError}</div>
+            )}
+            <form onSubmit={handleSaveDept} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bo'lim nomi</label>
+                <input
+                  type="text"
+                  value={deptName}
+                  onChange={(e) => setDeptName(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Masalan: UzSaga, Rubl, Uzcard..."
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeptModal(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+                >
+                  Bekor qilish
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+                >
+                  {editingDept ? 'Saqlash' : 'Qo\'shish'}
                 </button>
               </div>
             </form>

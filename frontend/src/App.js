@@ -6,8 +6,7 @@ import Login from './pages/Login';
 import Admins from './pages/superadmin/Admins';
 import Cards from './pages/superadmin/Cards';
 import Settings from './pages/superadmin/Settings';
-import HumoPage from './pages/admin/HumoPage';
-import UzcardPage from './pages/admin/UzcardPage';
+import AdminCardsPage from './pages/admin/AdminCardsPage';
 
 const ProtectedRoute = ({ children, role }) => {
   const { user, loading } = useAuth();
@@ -22,7 +21,7 @@ const HomeRedirect = () => {
   if (loading) return <div className="flex items-center justify-center h-screen text-gray-500">Yuklanmoqda...</div>;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === 'super_admin') return <Navigate to="/superadmin/cards" replace />;
-  return <Navigate to="/admin/humo" replace />;
+  return <Navigate to="/admin/cards" replace />;
 };
 
 function AppRoutes() {
@@ -45,12 +44,13 @@ function AppRoutes() {
             <ProtectedRoute role="super_admin"><Settings /></ProtectedRoute>
           } />
 
-          <Route path="/admin/humo" element={
-            <ProtectedRoute role="admin"><HumoPage /></ProtectedRoute>
+          <Route path="/admin/cards" element={
+            <ProtectedRoute role="admin"><AdminCardsPage /></ProtectedRoute>
           } />
-          <Route path="/admin/uzcard" element={
-            <ProtectedRoute role="admin"><UzcardPage /></ProtectedRoute>
-          } />
+          {/* Eski yo'llarni yangi sahifaga yo'naltirish */}
+          <Route path="/admin/humo" element={<Navigate to="/admin/cards" replace />} />
+          <Route path="/admin/uzcard" element={<Navigate to="/admin/cards" replace />} />
+          <Route path="/admin" element={<Navigate to="/admin/cards" replace />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

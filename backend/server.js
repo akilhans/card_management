@@ -37,6 +37,7 @@ connectDB()
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/cards", require("./routes/cards"));
+app.use("/api/departments", require("./routes/departments"));
 app.use("/api/settings", require("./routes/settings"));
 
 const CRON_TIMEZONE = process.env.CRON_TIMEZONE || "Asia/Tashkent";
