@@ -68,6 +68,55 @@ const formatCardNumber = (number) => {
     .trim();
 };
 
+// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam, bank nomi, egasi, tel, admin, bo'lim)
+const matchesCardSearch = (card, q) => {
+  if (!q) return false;
+  const qTrim = q.trim().toLowerCase();
+  const qDigits = qTrim.replace(/\D/g, '');
+
+  const numRaw = String(card.number || '');
+  const numDigits = numRaw.replace(/\D/g, '');
+
+  // Oxirgi 4 ta raqam yoki karta raqami bo'yicha moslik
+  if (qDigits.length > 0 && numDigits.includes(qDigits)) {
+    return true;
+  }
+  if (numRaw.toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // Bank nomi (masalan: Kapital Bank, Agrobank, Ipak Yo'li, va h.k.)
+  if (String(card.bankName || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // Karta egasining F.I.Sh.
+  if (String(card.cardHolderName || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // Telefon raqami
+  const phoneDigits = String(card.cardHolderPhone || '').replace(/\D/g, '');
+  if (qDigits.length >= 3 && phoneDigits.includes(qDigits)) {
+    return true;
+  }
+  if (String(card.cardHolderPhone || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // Admin username
+  if (String(card.assignedAdmin?.username || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // Bo'lim nomi
+  if (String(card.department?.name || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  return false;
+};
+
 export default function Cards() {
   const [cards, setCards] = useState([]);
   const [takenCards, setTakenCards] = useState([]);
@@ -92,7 +141,9 @@ export default function Cards() {
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeSearchView, setActiveSearchView] = useState('cards'); // 'cards' or 'owners'
   const [limitSearchQuery, setLimitSearchQuery] = useState('');
+  const [limitSearchView, setLimitSearchView] = useState('cards'); // 'cards' or 'owners'
   const [statusFilter, setStatusFilter] = useState('all');
   const [view, setView] = useState('active'); // 'active', 'limit' yoki 'taken'
   const [amounts, setAmounts] = useState({});
@@ -228,6 +279,27 @@ export default function Cards() {
     );
   }, [cards, selectedDepartment]);
 
+  // To'g'ridan-to'g'ri qidiruv bo'yicha faol kartalar (oxirgi 4 ta raqam, bank, egasi va h.k.)
+  const directSearchCards = useMemo(() => {
+    const q = searchQuery.trim();
+    if (!q) return [];
+    // Agar bo'lim tanlangan bo'lsa, avval o'sha bo'limdagi kartalardan, bo'lmasa barcha faol kartalardan qidiramiz
+    const pool = selectedDepartment === 'all'
+      ? cards.filter((c) => !c.taken)
+      : departmentFilteredCards.filter((c) => !c.taken);
+    return pool.filter((c) => matchesCardSearch(c, q));
+  }, [cards, departmentFilteredCards, searchQuery, selectedDepartment]);
+
+  // To'g'ridan-to'g'ri qidiruv bo'yicha limit kartalar
+  const directLimitSearchCards = useMemo(() => {
+    const q = limitSearchQuery.trim();
+    if (!q) return [];
+    const pool = selectedDepartment === 'all'
+      ? cards.filter((c) => !c.taken && c.status === 'LIMIT_REACHED')
+      : departmentFilteredCards.filter((c) => !c.taken && c.status === 'LIMIT_REACHED');
+    return pool.filter((c) => matchesCardSearch(c, q));
+  }, [cards, departmentFilteredCards, limitSearchQuery, selectedDepartment]);
+
   // Egalari bo'yicha guruhlar
   const allOwnerGroups = useMemo(() => {
     const groups = {};
@@ -304,19 +376,9 @@ export default function Cards() {
       if (statusFilter === 'limit' && !group.cards.some((c) => c.status === 'LIMIT_REACHED')) {
         return false;
       }
-      const q = searchQuery.trim().toLowerCase();
+      const q = searchQuery.trim();
       if (!q) return true;
-      const matchHolder =
-        String(group.cardHolderName || '').toLowerCase().includes(q) ||
-        String(group.cardHolderPhone || '').toLowerCase().includes(q);
-      if (matchHolder) return true;
-      return group.cards.some(
-        (c) =>
-          String(c.number || '').toLowerCase().includes(q) ||
-          String(c.bankName || '').toLowerCase().includes(q) ||
-          String(c.assignedAdmin?.username || '').toLowerCase().includes(q) ||
-          String(c.department?.name || '').toLowerCase().includes(q)
-      );
+      return group.cards.some((c) => matchesCardSearch(c, q));
     });
   }, [rawActiveGroups, searchQuery, statusFilter]);
 
@@ -329,20 +391,10 @@ export default function Cards() {
 
   // Limit guruhlar qidiruv
   const filteredLimitGroups = useMemo(() => {
-    const q = limitSearchQuery.trim().toLowerCase();
+    const q = limitSearchQuery.trim();
     if (!q) return rawLimitGroups;
     return rawLimitGroups.filter((group) => {
-      const matchHolder =
-        String(group.cardHolderName || '').toLowerCase().includes(q) ||
-        String(group.cardHolderPhone || '').toLowerCase().includes(q);
-      if (matchHolder) return true;
-      return group.cards.some(
-        (c) =>
-          String(c.number || '').toLowerCase().includes(q) ||
-          String(c.bankName || '').toLowerCase().includes(q) ||
-          String(c.assignedAdmin?.username || '').toLowerCase().includes(q) ||
-          String(c.department?.name || '').toLowerCase().includes(q)
-      );
+      return group.cards.some((c) => matchesCardSearch(c, q));
     });
   }, [rawLimitGroups, limitSearchQuery]);
 
@@ -727,7 +779,7 @@ export default function Cards() {
         <>
           <div className="grid gap-4 md:grid-cols-3 mb-6">
             <div className="bg-white rounded-xl shadow p-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Qidiruv</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Qidiruv (Karta raqami, bank, egasi...)</label>
               <div className="relative">
                 <input
                   type="search"
@@ -736,7 +788,7 @@ export default function Cards() {
                     setSearchQuery(e.target.value);
                     setActivePage(1);
                   }}
-                  placeholder="Karta raqami, egasi, telefon yoki bo'lim..."
+                  placeholder="Oxirgi 4ta raqam (masalan 4412), bank nomi (Kapital)..."
                   className="w-full border border-gray-300 rounded-lg pl-9 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
@@ -787,32 +839,207 @@ export default function Cards() {
             </div>
           </div>
 
-          {!selectedOwner && (
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm text-gray-600">
-                Jami <span className="font-semibold text-gray-800">{filteredActiveGroups.length}</span> ta aktiv guruh mavjud
-              </p>
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <span>Sahifada:</span>
-                <select
-                  value={activeItemsPerPage}
-                  onChange={(e) => {
-                    setActiveItemsPerPage(Number(e.target.value));
-                    setActivePage(1);
-                  }}
-                  className="border border-gray-300 rounded-lg px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value={6}>6</option>
-                  <option value={12}>12</option>
-                  <option value={24}>24</option>
-                  <option value={48}>48</option>
-                </select>
+          {/* Qidiruv natijalari: agar qidiruv kiritilgan bo'lsa, to'g'ridan-to'g'ri kartalarni ko'rsatish */}
+          {!selectedOwner && searchQuery.trim() && (
+            <div className="space-y-4 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-700 font-bold text-sm">🔍 Qidiruv natijasi:</span>
+                    <span className="text-gray-900 text-sm font-medium">
+                      "{searchQuery}" so'rovi bo'yicha <strong>{directSearchCards.length}</strong> ta karta topildi
+                    </span>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-0.5">
+                    Kartaning oxirgi raqamlari, bank nomi (Kapital Bank va h.k.) yoki egasi bo'yicha topilgan natijalar
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex bg-white rounded-xl p-1 border border-blue-200 shadow-sm text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setActiveSearchView('cards')}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${
+                        activeSearchView === 'cards' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Kartalar ({directSearchCards.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSearchView('owners')}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${
+                        activeSearchView === 'owners' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Egalar guruhi ({filteredActiveGroups.length})
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="px-3 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold transition-colors"
+                  >
+                    Tozalash ✕
+                  </button>
+                </div>
               </div>
+
+              {activeSearchView === 'cards' && (
+                directSearchCards.length === 0 ? (
+                  <div className="bg-white rounded-2xl shadow p-10 text-center text-gray-500">
+                    "{searchQuery}" bo'yicha hech qanday faol karta topilmadi.
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Karta egasi</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Bo'lim</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Tur</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Holat</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Qabul qilingan</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {directSearchCards.map((card, index) => (
+                          <tr
+                            key={card._id}
+                            className={`transition-colors ${
+                              card.status === 'LIMIT_REACHED' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            <td className="px-4 py-3 text-gray-400">{index + 1}</td>
+                            <td className="px-4 py-3 font-bold text-gray-900">{card.bankName}</td>
+                            <td className="px-4 py-3 font-mono text-gray-800 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold tracking-wider">{formatCardNumber(card.number)}</span>
+                                <button
+                                  onClick={() => handleCopy(card.number, card._id)}
+                                  className="text-xs text-gray-500 hover:text-gray-700"
+                                  title="Nusxalash"
+                                >
+                                  {copied === card._id ? '✓' : '📋'}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-gray-800">{card.cardHolderName}</div>
+                              <button
+                                onClick={() => {
+                                  const g = allOwnerGroups.find((x) => x.key === formatOwnerKey(card));
+                                  if (g) handleSelectOwner(g);
+                                }}
+                                className="text-[11px] text-blue-600 hover:underline font-medium"
+                              >
+                                Egasining barcha kartalari &rarr;
+                              </button>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap">
+                                {card.department?.name || 'Bo\'limsiz'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                card.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {card.type}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
+                            <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
+                            <td className="px-4 py-3 text-indigo-700 font-medium">{card.assignedAdmin?.username || 'Tayinlanmagan'}</td>
+                            <td className="px-4 py-3">
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                card.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                              }`}>
+                                {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-gray-700 font-medium">{Number(card.receivedAmount || 0).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1 flex-wrap">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={amounts[card._id] ?? ''}
+                                  onChange={(e) => handleAmountChange(card._id, e.target.value)}
+                                  placeholder="sum"
+                                  className="w-16 border border-gray-300 rounded px-2 py-1 text-xs"
+                                />
+                                <button
+                                  onClick={() => submitReceived(card)}
+                                  className="text-xs bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded text-gray-700 font-medium"
+                                >
+                                  Qo'shish
+                                </button>
+                                {card.status === 'LIMIT_REACHED' && (
+                                  <button
+                                    onClick={() => handleReactivate(card._id)}
+                                    className="text-xs font-medium border border-green-600 text-green-600 hover:bg-green-600 hover:text-white px-2 py-1 rounded transition-colors"
+                                  >
+                                    Faollashtirish
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleOpenEdit(card)}
+                                  className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                                >
+                                  Tahrir
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(card._id)}
+                                  className="text-red-600 hover:text-red-800 text-xs font-medium"
+                                >
+                                  O‘chirish
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
             </div>
           )}
 
-          {!selectedOwner && (
+          {/* Normal holat (qidiruvsiz yoki egasini ko'rish rejimi) */}
+          {!selectedOwner && (!searchQuery.trim() || activeSearchView === 'owners') && (
             <>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-gray-600">
+                  Jami <span className="font-semibold text-gray-800">{filteredActiveGroups.length}</span> ta aktiv guruh mavjud
+                </p>
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <span>Sahifada:</span>
+                  <select
+                    value={activeItemsPerPage}
+                    onChange={(e) => {
+                      setActiveItemsPerPage(Number(e.target.value));
+                      setActivePage(1);
+                    }}
+                    className="border border-gray-300 rounded-lg px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value={6}>6</option>
+                    <option value={12}>12</option>
+                    <option value={24}>24</option>
+                    <option value={48}>48</option>
+                  </select>
+                </div>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 mb-6">
                 {filteredActiveGroups.length === 0 ? (
                   <div className="col-span-full bg-white rounded-xl shadow p-8 text-center text-gray-500">
@@ -1098,7 +1325,7 @@ export default function Cards() {
                         }`}
                       >
                         <td className="px-3 py-3 text-gray-400">{index + 1}</td>
-                        <td className="px-3 py-3 text-gray-700">{card.bankName}</td>
+                        <td className="px-3 py-3 text-gray-700 font-bold">{card.bankName}</td>
                         <td className="px-3 py-3 font-mono text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1">
                             <span>{card.number}</span>
@@ -1188,7 +1415,7 @@ export default function Cards() {
         <>
           <div className="grid gap-4 md:grid-cols-3 mb-6">
             <div className="md:col-span-2 bg-white rounded-xl shadow p-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Limit bo'lgan kartalarni qidirish</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Limit bo'lgan kartalarni qidirish (oxirgi 4 ta raqam, bank, egasi...)</label>
               <div className="relative">
                 <input
                   type="search"
@@ -1197,7 +1424,7 @@ export default function Cards() {
                     setLimitSearchQuery(e.target.value);
                     setLimitPage(1);
                   }}
-                  placeholder="Karta raqami, egasi, telefon, admin yoki bank..."
+                  placeholder="Oxirgi 4ta raqam (4412), bank nomi (Kapital), egasi..."
                   className="w-full border border-gray-300 rounded-lg pl-9 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
                 <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
@@ -1228,7 +1455,151 @@ export default function Cards() {
             </div>
           </div>
 
-          {!selectedOwner && (
+          {/* Limit kartalar qidiruv natijasi (kartalar to'g'ridan-to'g'ri ko'rsatiladi) */}
+          {!selectedOwner && limitSearchQuery.trim() && (
+            <div className="space-y-4 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-2xl p-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-red-700 font-bold text-sm">🔍 Limit kartalar qidiruv natijasi:</span>
+                    <span className="text-gray-900 text-sm font-medium">
+                      "{limitSearchQuery}" bo'yicha <strong>{directLimitSearchCards.length}</strong> ta limit karta topildi
+                    </span>
+                  </div>
+                  <p className="text-xs text-red-600 mt-0.5">
+                    Oxirgi 4 ta raqam, bank nomi (Kapital Bank) yoki egasi bo'yicha topilgan natijalar
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex bg-white rounded-xl p-1 border border-red-200 shadow-sm text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setLimitSearchView('cards')}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${
+                        limitSearchView === 'cards' ? 'bg-red-600 text-white' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Kartalar ({directLimitSearchCards.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLimitSearchView('owners')}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${
+                        limitSearchView === 'owners' ? 'bg-red-600 text-white' : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Egalar guruhi ({filteredLimitGroups.length})
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setLimitSearchQuery('')}
+                    className="px-3 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold transition-colors"
+                  >
+                    Tozalash ✕
+                  </button>
+                </div>
+              </div>
+
+              {limitSearchView === 'cards' && (
+                directLimitSearchCards.length === 0 ? (
+                  <div className="bg-white rounded-2xl shadow p-10 text-center text-gray-500">
+                    "{limitSearchQuery}" bo'yicha limit karta topilmadi.
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl shadow-sm border border-red-200 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Karta egasi</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Bo'lim</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Tur</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Qabul qilingan</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {directLimitSearchCards.map((card, index) => (
+                          <tr key={card._id} className="bg-red-50 hover:bg-red-100 transition-colors">
+                            <td className="px-4 py-3 text-gray-400">{index + 1}</td>
+                            <td className="px-4 py-3 font-bold text-gray-900">{card.bankName}</td>
+                            <td className="px-4 py-3 font-mono text-gray-800 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold tracking-wider">{formatCardNumber(card.number)}</span>
+                                <button
+                                  onClick={() => handleCopy(card.number, card._id)}
+                                  className="text-xs text-gray-500 hover:text-gray-700"
+                                  title="Nusxalash"
+                                >
+                                  {copied === card._id ? '✓' : '📋'}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-gray-800">{card.cardHolderName}</div>
+                              <button
+                                onClick={() => {
+                                  const g = allOwnerGroups.find((x) => x.key === formatOwnerKey(card));
+                                  if (g) handleSelectOwner(g);
+                                }}
+                                className="text-[11px] text-red-700 hover:underline font-medium"
+                              >
+                                Egasining barcha kartalari &rarr;
+                              </button>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 border border-red-200 whitespace-nowrap">
+                                {card.department?.name || 'Bo\'limsiz'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gray-200 text-gray-800">
+                                {card.type}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
+                            <td className="px-4 py-3 text-indigo-700 font-medium">{card.assignedAdmin?.username || 'Tayinlanmagan'}</td>
+                            <td className="px-4 py-3 text-gray-700 font-medium">{Number(card.receivedAmount || 0).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-1 flex-wrap">
+                                <button
+                                  onClick={() => handleReactivate(card._id)}
+                                  className="text-xs font-medium border border-green-600 bg-white text-green-600 hover:bg-green-600 hover:text-white px-2.5 py-1 rounded transition-colors"
+                                >
+                                  Faollashtirish
+                                </button>
+                                <button
+                                  onClick={() => handleOpenEdit(card)}
+                                  className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1"
+                                >
+                                  Tahrir
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(card._id)}
+                                  className="text-red-600 hover:text-red-800 text-xs font-medium px-1"
+                                >
+                                  O‘chirish
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+
+          {/* Normal holat (limit qidiruvsiz yoki egasini ko'rish rejimi) */}
+          {!selectedOwner && (!limitSearchQuery.trim() || limitSearchView === 'owners') && (
             <>
               <div className="flex items-center justify-between mb-4">
                 <p className="text-sm text-gray-600">
@@ -1446,7 +1817,7 @@ export default function Cards() {
                     {selectedGroupCards.map((card, index) => (
                       <tr key={card._id} className="bg-red-50 hover:bg-red-100 transition-colors">
                         <td className="px-3 py-3 text-gray-400">{index + 1}</td>
-                        <td className="px-3 py-3 text-gray-700">{card.bankName}</td>
+                        <td className="px-3 py-3 text-gray-700 font-bold">{card.bankName}</td>
                         <td className="px-3 py-3 font-mono text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1">
                             <span>{card.number}</span>
@@ -1623,7 +1994,7 @@ export default function Cards() {
                   filteredTakenCards.map((card, index) => (
                     <tr key={card._id} className="hover:bg-gray-50">
                       <td className="px-3 py-3 text-gray-400">{index + 1}</td>
-                      <td className="px-3 py-3 text-gray-700">{card.bankName}</td>
+                      <td className="px-3 py-3 text-gray-700 font-bold">{card.bankName}</td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1 whitespace-nowrap">
                           <span className="font-mono tracking-wider text-gray-800">

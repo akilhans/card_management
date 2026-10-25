@@ -56,6 +56,50 @@ const formatOwnerKey = (card) => {
   return `${name}||${phone}`;
 };
 
+// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam, bank nomi, egasi, tel va h.k.)
+const matchesCardSearch = (card, q) => {
+  if (!q) return false;
+  const qTrim = q.trim().toLowerCase();
+  const qDigits = qTrim.replace(/\D/g, '');
+
+  const numRaw = String(card.number || '');
+  const numDigits = numRaw.replace(/\D/g, '');
+
+  // Oxirgi 4 ta raqam yoki karta raqami bo'yicha moslik
+  if (qDigits.length > 0 && numDigits.includes(qDigits)) {
+    return true;
+  }
+  if (numRaw.toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // Bank nomi (masalan: Kapital Bank, Agrobank, Ipak Yo'li, va h.k.)
+  if (String(card.bankName || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // Karta egasining F.I.Sh.
+  if (String(card.cardHolderName || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // Telefon raqami
+  const phoneDigits = String(card.cardHolderPhone || '').replace(/\D/g, '');
+  if (qDigits.length >= 3 && phoneDigits.includes(qDigits)) {
+    return true;
+  }
+  if (String(card.cardHolderPhone || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // Bo'lim nomi
+  if (String(card.department?.name || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  return false;
+};
+
 export default function AdminCardsPage() {
   const [cards, setCards] = useState([]);
   const [usedCards, setUsedCards] = useState([]);
@@ -77,7 +121,6 @@ export default function AdminCardsPage() {
     try {
       const res = await api.get('/departments');
       setDepartments(res.data);
-      // Agar bo'limlar mavjud bo'lsa va selectedDeptId 'all' bo'lsa, birinchi bo'limni tanlash
       if (res.data.length > 0 && selectedDeptId === 'all') {
         setSelectedDeptId(res.data[0]._id);
       }
@@ -138,6 +181,14 @@ export default function AdminCardsPage() {
     );
   }, [cards, selectedDeptId]);
 
+  // To'g'ridan-to'g'ri qidiruv bo'yicha topilgan faol kartalar (oxirgi 4 ta raqam, bank nomi, egasi...)
+  const directSearchCards = useMemo(() => {
+    const q = searchQuery.trim();
+    if (!q) return [];
+    // Qidiruv bo'yicha adminga tegishli bo'lgan barcha mavjud kartalardan qidiradi
+    return cards.filter((c) => matchesCardSearch(c, q));
+  }, [cards, searchQuery]);
+
   // Bo'limdagi kartalarni egasi (profil) bo'yicha guruhlash
   const profileGroups = useMemo(() => {
     const groups = {};
@@ -163,28 +214,30 @@ export default function AdminCardsPage() {
     });
   }, [deptCards]);
 
-  // Qidiruv bo'yicha profillarni filtrlash
-  const filteredProfiles = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return profileGroups;
-    return profileGroups.filter((group) => {
-      const matchHolder =
-        String(group.cardHolderName || '').toLowerCase().includes(q) ||
-        String(group.cardHolderPhone || '').toLowerCase().includes(q);
-      if (matchHolder) return true;
-      return group.cards.some(
-        (c) =>
-          String(c.number || '').toLowerCase().includes(q) ||
-          String(c.bankName || '').toLowerCase().includes(q)
-      );
+  // Barcha profillar ro'yxati (to'g'ridan-to'g'ri ochish uchun)
+  const allProfileGroups = useMemo(() => {
+    const groups = {};
+    cards.forEach((card) => {
+      const key = formatOwnerKey(card);
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          cardHolderName: card.cardHolderName,
+          cardHolderPhone: card.cardHolderPhone,
+          department: card.department,
+          cards: [],
+        };
+      }
+      groups[key].cards.push(card);
     });
-  }, [profileGroups, searchQuery]);
+    return Object.values(groups);
+  }, [cards]);
 
   // Tanlangan profil ob'ekti
   const currentProfile = useMemo(() => {
     if (!selectedProfileKey) return null;
-    return profileGroups.find((g) => g.key === selectedProfileKey) || null;
-  }, [profileGroups, selectedProfileKey]);
+    return allProfileGroups.find((g) => g.key === selectedProfileKey) || null;
+  }, [allProfileGroups, selectedProfileKey]);
 
   // Tanlangan profil ichidagi kartalar (Humo yoki Uzcard)
   const profileCardsByType = useMemo(() => {
@@ -365,94 +418,217 @@ export default function AdminCardsPage() {
             </div>
           </div>
 
-          {/* 1-QADAM: PROFILLAR RO'YXATI (Profil tanlanmaganda) */}
-          {!currentProfile && (
-            <>
-              {/* Qidiruv */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
-                <div className="relative">
-                  <input
-                    type="search"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Profil nomi, egasi yoki telefon raqami bo'yicha qidirish..."
-                    className="w-full border border-gray-300 rounded-lg pl-9 pr-8 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="absolute left-3 top-3 text-gray-400 text-sm">🔍</span>
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 text-sm font-bold"
-                    >
-                      ✕
-                    </button>
-                  )}
+          {/* Qidiruv input maydoni */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+            <div className="relative">
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Karta oxirgi 4ta raqami (masalan 4412), bank nomi (Kapital Bank), egasi..."
+                className="w-full border border-gray-300 rounded-lg pl-9 pr-8 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="absolute left-3 top-3 text-gray-400 text-sm">🔍</span>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 text-sm font-bold"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* QIDIRUV NATIJALARI: AGAR QIDIRUV MAYDONI TO'LDIRILGAN BO'LSA, KARTALAR TO'G'RIDAN-TO'G'RI CHIQADI */}
+          {!currentProfile && searchQuery.trim() && (
+            <div className="space-y-4 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-blue-700 font-bold text-sm">🔍 Qidiruv natijasi:</span>
+                    <span className="text-gray-900 text-sm font-medium">
+                      "{searchQuery}" so'rovi bo'yicha <strong>{directSearchCards.length}</strong> ta faol karta topildi
+                    </span>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-0.5">
+                    Oxirgi 4 ta raqam yoki bank nomi (masalan: Kapital Bank) bo'yicha to'g'ridan-to'g'ri topilgan kartalar:
+                  </p>
                 </div>
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold transition-colors self-start sm:self-auto"
+                >
+                  Qidiruvni tozalash ✕
+                </button>
               </div>
 
-              {/* Profillar kartalari */}
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-6">
-                {filteredProfiles.length === 0 ? (
-                  <div className="col-span-full bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center text-gray-500">
-                    <div className="text-4xl mb-3">📁</div>
-                    <p className="text-base font-semibold text-gray-700">
-                      Ushbu bo'limda sizga biriktirilgan faol kartalar yo'q.
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Super admin sizga yangi kartalarni biriktirganda ular shu yerda ko'rinadi.
-                    </p>
-                  </div>
-                ) : (
-                  filteredProfiles.map((group) => {
-                    const humoCount = group.cards.filter((c) => c.type === 'HUMO').length;
-                    const uzcardCount = group.cards.filter((c) => c.type === 'UZCARD').length;
+              {directSearchCards.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center text-gray-500">
+                  <div className="text-4xl mb-3">🔍</div>
+                  <p className="text-base font-semibold text-gray-700">
+                    "{searchQuery}" bo'yicha sizga biriktirilgan faol karta topilmadi.
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Karta raqami (oxirgi 4 ta raqami) yoki bank nomini tekshirib ko'ring.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {directSearchCards.map((card) => (
+                    <div
+                      key={card._id}
+                      className="bg-white rounded-2xl shadow-sm border-2 border-blue-200 p-5 hover:shadow-md transition-shadow flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-bold text-gray-900">
+                            {card.bankName}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                            card.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {card.type}
+                          </span>
+                        </div>
 
-                    return (
-                      <div
-                        key={group.key}
-                        onClick={() => handleSelectProfile(group)}
-                        className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 hover:shadow-md hover:border-blue-400 cursor-pointer transition-all flex flex-col justify-between group"
-                      >
-                        <div>
-                          <div className="flex items-start justify-between gap-2 mb-3">
-                            <div>
-                              <p className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-                                {group.cardHolderName || "Noma'lum"}
-                              </p>
-                              <p className="text-xs text-gray-500 font-mono mt-0.5">
-                                {formatPhone(group.cardHolderPhone || '') || "Noma'lum"}
-                              </p>
-                            </div>
-                            <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-blue-50 text-blue-700 whitespace-nowrap">
-                              {group.cards.length} ta karta
-                            </span>
-                          </div>
+                        {/* Karta raqami */}
+                        <div className="bg-blue-50/50 rounded-xl p-3 mb-3 border border-blue-100 flex items-center justify-between">
+                          <span className="font-mono text-base font-bold text-gray-900 tracking-wider">
+                            {formatCardNumber(card.number)}
+                          </span>
+                          <button
+                            onClick={() => handleCopy(card.number, card._id)}
+                            className="p-1.5 text-gray-500 hover:text-blue-600 rounded-lg hover:bg-white transition-colors"
+                            title="Karta raqamini nusxalash"
+                          >
+                            {copied === card._id ? '✓' : '📋'}
+                          </button>
+                        </div>
 
-                          <div className="flex items-center gap-1.5 flex-wrap my-3">
-                            {humoCount > 0 && (
-                              <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-purple-100 text-purple-700">
-                                HUMO: {humoCount}
+                        {/* Karta egasi va bo'limi */}
+                        <div className="mb-2">
+                          <div className="text-xs font-bold text-gray-800">{card.cardHolderName}</div>
+                          <div className="flex items-center gap-2 mt-1">
+                            {card.department ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                {card.department.name}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                                Bo'limsiz
                               </span>
                             )}
-                            {uzcardCount > 0 && (
-                              <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-100 text-blue-700">
-                                UZCARD: {uzcardCount}
-                              </span>
-                            )}
+                            <button
+                              onClick={() => {
+                                const g = allProfileGroups.find((x) => x.key === formatOwnerKey(card));
+                                if (g) handleSelectProfile(g);
+                              }}
+                              className="text-[11px] text-blue-600 hover:underline font-medium"
+                            >
+                              Egasining profili &rarr;
+                            </button>
                           </div>
                         </div>
 
-                        <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-xs font-medium text-blue-600 group-hover:text-blue-700">
-                          <span>Kartalarni ko'rish</span>
-                          <span>&rarr;</span>
+                        {/* Muddati va Telefon */}
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-4 px-1 pt-2 border-t border-gray-100">
+                          <div>
+                            <span className="block text-[10px] text-gray-400">Muddati</span>
+                            <span className="font-mono font-medium text-gray-700">{formatExpiry(card.expiryDate)}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="block text-[10px] text-gray-400">Telefon</span>
+                            <span className="font-mono font-medium text-gray-700">{formatPhone(card.cardHolderPhone || '')}</span>
+                          </div>
                         </div>
                       </div>
-                    );
-                  })
-                )}
-              </div>
-            </>
+
+                      {/* Amallar: Nusxa olish va Kartani olish */}
+                      <div className="flex gap-2 pt-2 border-t border-gray-100">
+                        <button
+                          onClick={() => handleCopy(card.number, card._id)}
+                          className="flex-1 border border-gray-300 rounded-xl py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-center"
+                        >
+                          {copied === card._id ? '✓ Nusxalandi' : 'Nusxa'}
+                        </button>
+                        <button
+                          onClick={() => handleTake(card._id)}
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2 text-xs font-semibold transition-colors text-center shadow-sm"
+                        >
+                          Kartani olish
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 1-QADAM: PROFILLAR RO'YXATI (Qidiruvsiz holat) */}
+          {!currentProfile && !searchQuery.trim() && (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-6">
+              {profileGroups.length === 0 ? (
+                <div className="col-span-full bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center text-gray-500">
+                  <div className="text-4xl mb-3">📁</div>
+                  <p className="text-base font-semibold text-gray-700">
+                    Ushbu bo'limda sizga biriktirilgan faol kartalar yo'q.
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Super admin sizga yangi kartalarni biriktirganda ular shu yerda ko'rinadi.
+                  </p>
+                </div>
+              ) : (
+                profileGroups.map((group) => {
+                  const humoCount = group.cards.filter((c) => c.type === 'HUMO').length;
+                  const uzcardCount = group.cards.filter((c) => c.type === 'UZCARD').length;
+
+                  return (
+                    <div
+                      key={group.key}
+                      onClick={() => handleSelectProfile(group)}
+                      className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 hover:shadow-md hover:border-blue-400 cursor-pointer transition-all flex flex-col justify-between group"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div>
+                            <p className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                              {group.cardHolderName || "Noma'lum"}
+                            </p>
+                            <p className="text-xs text-gray-500 font-mono mt-0.5">
+                              {formatPhone(group.cardHolderPhone || '') || "Noma'lum"}
+                            </p>
+                          </div>
+                          <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-blue-50 text-blue-700 whitespace-nowrap">
+                            {group.cards.length} ta karta
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-wrap my-3">
+                          {humoCount > 0 && (
+                            <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-purple-100 text-purple-700">
+                              HUMO: {humoCount}
+                            </span>
+                          )}
+                          {uzcardCount > 0 && (
+                            <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-100 text-blue-700">
+                              UZCARD: {uzcardCount}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-xs font-medium text-blue-600 group-hover:text-blue-700">
+                        <span>Kartalarni ko'rish</span>
+                        <span>&rarr;</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           )}
 
           {/* 2-QADAM: TANLANGAN PROFIL ICHIDAGI KARTALAR */}
@@ -544,7 +720,7 @@ export default function AdminCardsPage() {
                     >
                       <div>
                         <div className="flex items-center justify-between mb-3">
-                          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                          <span className="text-sm font-bold text-gray-900">
                             {card.bankName}
                           </span>
                           <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
@@ -753,7 +929,7 @@ export default function AdminCardsPage() {
                   filteredUsedCards.map((card, index) => (
                     <tr key={card._id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3 text-gray-400">{index + 1}</td>
-                      <td className="px-4 py-3 text-gray-700 font-medium">{card.bankName}</td>
+                      <td className="px-4 py-3 text-gray-700 font-bold">{card.bankName}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5 whitespace-nowrap">
                           <span className="font-mono tracking-wider text-gray-800">
@@ -768,7 +944,7 @@ export default function AdminCardsPage() {
                           </button>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-800">{card.cardHolderName}</td>
+                      <td className="px-4 py-3 text-gray-800 font-medium">{card.cardHolderName}</td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
                       <td className="px-4 py-3">
                         <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
