@@ -283,7 +283,6 @@ export default function Cards() {
   const directSearchCards = useMemo(() => {
     const q = searchQuery.trim();
     if (!q) return [];
-    // Agar bo'lim tanlangan bo'lsa, avval o'sha bo'limdagi kartalardan, bo'lmasa barcha faol kartalardan qidiramiz
     const pool = selectedDepartment === 'all'
       ? cards.filter((c) => !c.taken)
       : departmentFilteredCards.filter((c) => !c.taken);
@@ -686,7 +685,7 @@ export default function Cards() {
       {(view === 'active' || view === 'limit') && (
         <div className="bg-white rounded-xl shadow-sm p-3 mb-6 border border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 overflow-x-auto py-1 scrollbar-thin">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider mr-1">Bo'limlar:</span>
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider mr-1 whitespace-nowrap">Bo'limlar:</span>
             
             <button
               type="button"
@@ -785,7 +784,11 @@ export default function Cards() {
                   type="search"
                   value={searchQuery}
                   onChange={(e) => {
-                    setSearchQuery(e.target.value);
+                    const val = e.target.value;
+                    setSearchQuery(val);
+                    if (val.trim()) {
+                      setSelectedGroupKey(null);
+                    }
                     setActivePage(1);
                   }}
                   placeholder="Oxirgi 4ta raqam (masalan 4412), bank nomi (Kapital)..."
@@ -839,8 +842,8 @@ export default function Cards() {
             </div>
           </div>
 
-          {/* Qidiruv natijalari: agar qidiruv kiritilgan bo'lsa, to'g'ridan-to'g'ri kartalarni ko'rsatish */}
-          {!selectedOwner && searchQuery.trim() && (
+          {/* QIDIRUV NATIJALARI: AGAR QIDIRUV KIRITILGAN BO'LSA, KARTALAR TO'G'RIDAN-TO'G'RI CHIQADI */}
+          {searchQuery.trim() && (
             <div className="space-y-4 mb-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4">
                 <div>
@@ -919,7 +922,7 @@ export default function Cards() {
                             }`}
                           >
                             <td className="px-4 py-3 text-gray-400">{index + 1}</td>
-                            <td className="px-4 py-3 font-bold text-gray-900">{card.bankName}</td>
+                            <td className="px-4 py-3 font-bold text-gray-900">{card.bankName || "Bank kiritilmagan"}</td>
                             <td className="px-4 py-3 font-mono text-gray-800 whitespace-nowrap">
                               <div className="flex items-center gap-1.5">
                                 <span className="font-bold tracking-wider">{formatCardNumber(card.number)}</span>
@@ -937,7 +940,10 @@ export default function Cards() {
                               <button
                                 onClick={() => {
                                   const g = allOwnerGroups.find((x) => x.key === formatOwnerKey(card));
-                                  if (g) handleSelectOwner(g);
+                                  if (g) {
+                                    setSearchQuery('');
+                                    handleSelectOwner(g);
+                                  }
                                 }}
                                 className="text-[11px] text-blue-600 hover:underline font-medium"
                               >
@@ -1168,7 +1174,7 @@ export default function Cards() {
             </>
           )}
 
-          {selectedOwner && (
+          {selectedOwner && !searchQuery.trim() && (
             <div className="space-y-4 mb-6">
               <div className="flex flex-col gap-4 bg-white rounded-xl shadow p-4 lg:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -1325,7 +1331,7 @@ export default function Cards() {
                         }`}
                       >
                         <td className="px-3 py-3 text-gray-400">{index + 1}</td>
-                        <td className="px-3 py-3 text-gray-700 font-bold">{card.bankName}</td>
+                        <td className="px-3 py-3 text-gray-900 font-bold">{card.bankName || "Bank kiritilmagan"}</td>
                         <td className="px-3 py-3 font-mono text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1">
                             <span>{card.number}</span>
@@ -1421,7 +1427,11 @@ export default function Cards() {
                   type="search"
                   value={limitSearchQuery}
                   onChange={(e) => {
-                    setLimitSearchQuery(e.target.value);
+                    const val = e.target.value;
+                    setLimitSearchQuery(val);
+                    if (val.trim()) {
+                      setSelectedGroupKey(null);
+                    }
                     setLimitPage(1);
                   }}
                   placeholder="Oxirgi 4ta raqam (4412), bank nomi (Kapital), egasi..."
@@ -1456,7 +1466,7 @@ export default function Cards() {
           </div>
 
           {/* Limit kartalar qidiruv natijasi (kartalar to'g'ridan-to'g'ri ko'rsatiladi) */}
-          {!selectedOwner && limitSearchQuery.trim() && (
+          {limitSearchQuery.trim() && (
             <div className="space-y-4 mb-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-2xl p-4">
                 <div>
@@ -1528,7 +1538,7 @@ export default function Cards() {
                         {directLimitSearchCards.map((card, index) => (
                           <tr key={card._id} className="bg-red-50 hover:bg-red-100 transition-colors">
                             <td className="px-4 py-3 text-gray-400">{index + 1}</td>
-                            <td className="px-4 py-3 font-bold text-gray-900">{card.bankName}</td>
+                            <td className="px-4 py-3 font-bold text-gray-900">{card.bankName || "Bank kiritilmagan"}</td>
                             <td className="px-4 py-3 font-mono text-gray-800 whitespace-nowrap">
                               <div className="flex items-center gap-1.5">
                                 <span className="font-bold tracking-wider">{formatCardNumber(card.number)}</span>
@@ -1546,7 +1556,10 @@ export default function Cards() {
                               <button
                                 onClick={() => {
                                   const g = allOwnerGroups.find((x) => x.key === formatOwnerKey(card));
-                                  if (g) handleSelectOwner(g);
+                                  if (g) {
+                                    setLimitSearchQuery('');
+                                    handleSelectOwner(g);
+                                  }
                                 }}
                                 className="text-[11px] text-red-700 hover:underline font-medium"
                               >
@@ -1739,7 +1752,7 @@ export default function Cards() {
             </>
           )}
 
-          {selectedOwner && (
+          {selectedOwner && !limitSearchQuery.trim() && (
             <div className="space-y-4 mb-6">
               <div className="flex flex-col gap-3 bg-white rounded-xl shadow p-4 lg:p-6 border-t-4 border-red-500">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -1817,7 +1830,7 @@ export default function Cards() {
                     {selectedGroupCards.map((card, index) => (
                       <tr key={card._id} className="bg-red-50 hover:bg-red-100 transition-colors">
                         <td className="px-3 py-3 text-gray-400">{index + 1}</td>
-                        <td className="px-3 py-3 text-gray-700 font-bold">{card.bankName}</td>
+                        <td className="px-3 py-3 text-gray-900 font-bold">{card.bankName || "Bank kiritilmagan"}</td>
                         <td className="px-3 py-3 font-mono text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1">
                             <span>{card.number}</span>
@@ -1848,7 +1861,7 @@ export default function Cards() {
                           <div className="flex items-center justify-end gap-1 flex-wrap">
                             <button
                               onClick={() => handleReactivate(card._id)}
-                              className="text-xs font-medium border border-green-600 bg-white text-green-600 hover:bg-green-600 hover:text-white px-3 py-1 rounded transition-colors"
+                              className="text-xs font-medium border border-green-600 bg-white text-green-600 hover:bg-green-600 hover:text-white px-2.5 py-1 rounded transition-colors"
                               title="Kartani faollashtirish (guruh aktiv kartalarga qaytadi)"
                             >
                               Faollashtirish
@@ -1994,7 +2007,7 @@ export default function Cards() {
                   filteredTakenCards.map((card, index) => (
                     <tr key={card._id} className="hover:bg-gray-50">
                       <td className="px-3 py-3 text-gray-400">{index + 1}</td>
-                      <td className="px-3 py-3 text-gray-700 font-bold">{card.bankName}</td>
+                      <td className="px-3 py-3 text-gray-900 font-bold">{card.bankName || "Bank kiritilmagan"}</td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-1 whitespace-nowrap">
                           <span className="font-mono tracking-wider text-gray-800">

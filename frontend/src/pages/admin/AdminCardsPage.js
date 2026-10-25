@@ -424,7 +424,13 @@ export default function AdminCardsPage() {
               <input
                 type="search"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchQuery(val);
+                  if (val.trim()) {
+                    setSelectedProfileKey(null);
+                  }
+                }}
                 placeholder="Karta oxirgi 4ta raqami (masalan 4412), bank nomi (Kapital Bank), egasi..."
                 className="w-full border border-gray-300 rounded-lg pl-9 pr-8 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -442,7 +448,7 @@ export default function AdminCardsPage() {
           </div>
 
           {/* QIDIRUV NATIJALARI: AGAR QIDIRUV MAYDONI TO'LDIRILGAN BO'LSA, KARTALAR TO'G'RIDAN-TO'G'RI CHIQADI */}
-          {!currentProfile && searchQuery.trim() && (
+          {searchQuery.trim() && (
             <div className="space-y-4 mb-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4">
                 <div>
@@ -484,7 +490,7 @@ export default function AdminCardsPage() {
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-bold text-gray-900">
-                            {card.bankName}
+                            {card.bankName || "Bank kiritilmagan"}
                           </span>
                           <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                             card.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
@@ -523,7 +529,10 @@ export default function AdminCardsPage() {
                             <button
                               onClick={() => {
                                 const g = allProfileGroups.find((x) => x.key === formatOwnerKey(card));
-                                if (g) handleSelectProfile(g);
+                                if (g) {
+                                  setSearchQuery('');
+                                  handleSelectProfile(g);
+                                }
                               }}
                               className="text-[11px] text-blue-600 hover:underline font-medium"
                             >
@@ -632,7 +641,7 @@ export default function AdminCardsPage() {
           )}
 
           {/* 2-QADAM: TANLANGAN PROFIL ICHIDAGI KARTALAR */}
-          {currentProfile && (
+          {currentProfile && !searchQuery.trim() && (
             <div className="space-y-6">
               {/* Profil tepa sarlavhasi va orqaga tugmasi */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
@@ -721,7 +730,7 @@ export default function AdminCardsPage() {
                       <div>
                         <div className="flex items-center justify-between mb-3">
                           <span className="text-sm font-bold text-gray-900">
-                            {card.bankName}
+                            {card.bankName || "Bank kiritilmagan"}
                           </span>
                           <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                             card.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
@@ -929,7 +938,7 @@ export default function AdminCardsPage() {
                   filteredUsedCards.map((card, index) => (
                     <tr key={card._id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3 text-gray-400">{index + 1}</td>
-                      <td className="px-4 py-3 text-gray-700 font-bold">{card.bankName}</td>
+                      <td className="px-4 py-3 text-gray-700 font-bold">{card.bankName || "Bank kiritilmagan"}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5 whitespace-nowrap">
                           <span className="font-mono tracking-wider text-gray-800">
