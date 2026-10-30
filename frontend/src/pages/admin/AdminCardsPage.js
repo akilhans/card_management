@@ -56,7 +56,7 @@ const formatOwnerKey = (card) => {
   return `${name}||${phone}`;
 };
 
-// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam, bank nomi, egasi, tel va h.k.)
+// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam bilan tugash, bank nomi, egasi, tel va h.k.)
 const matchesCardSearch = (card, q) => {
   if (!q) return false;
   const qTrim = q.trim().toLowerCase();
@@ -65,12 +65,15 @@ const matchesCardSearch = (card, q) => {
   const numRaw = String(card.number || '');
   const numDigits = numRaw.replace(/\D/g, '');
 
-  // Oxirgi 4 ta raqam yoki karta raqami bo'yicha moslik
-  if (qDigits.length > 0 && numDigits.includes(qDigits)) {
-    return true;
+  // Agar qidiruv sof raqam bo'lsa (masalan "5215" yoki "4412"):
+  // FAQAT ushbu raqamlar bilan TUGAGAN (endsWith) karta chiqsin, o'rtasida qatnashgan emas!
+  if (qDigits.length > 0 && qTrim === qDigits) {
+    return numDigits.endsWith(qDigits);
   }
-  if (numRaw.toLowerCase().includes(qTrim)) {
-    return true;
+
+  // Agar bo'shliqlar bilan kiritilgan raqamlar bo'lsa (masalan "8600 5215" yoki "5215"):
+  if (qDigits.length >= 4 && !/[a-zа-я]/i.test(qTrim)) {
+    return numDigits.endsWith(qDigits) || numDigits === qDigits;
   }
 
   // Bank nomi (masalan: Kapital Bank, Agrobank, Ipak Yo'li, va h.k.)
@@ -83,9 +86,9 @@ const matchesCardSearch = (card, q) => {
     return true;
   }
 
-  // Telefon raqami
+  // Telefon raqami (agar 7 tadan ko'p raqam terilgan bo'lsa)
   const phoneDigits = String(card.cardHolderPhone || '').replace(/\D/g, '');
-  if (qDigits.length >= 3 && phoneDigits.includes(qDigits)) {
+  if (qDigits.length >= 7 && phoneDigits.includes(qDigits)) {
     return true;
   }
   if (String(card.cardHolderPhone || '').toLowerCase().includes(qTrim)) {

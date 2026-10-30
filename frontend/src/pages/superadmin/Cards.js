@@ -68,7 +68,7 @@ const formatCardNumber = (number) => {
     .trim();
 };
 
-// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam, bank nomi, egasi, tel, admin, bo'lim)
+// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam bilan tugash, bank nomi, egasi, tel, admin, bo'lim)
 const matchesCardSearch = (card, q) => {
   if (!q) return false;
   const qTrim = q.trim().toLowerCase();
@@ -77,12 +77,15 @@ const matchesCardSearch = (card, q) => {
   const numRaw = String(card.number || '');
   const numDigits = numRaw.replace(/\D/g, '');
 
-  // Oxirgi 4 ta raqam yoki karta raqami bo'yicha moslik
-  if (qDigits.length > 0 && numDigits.includes(qDigits)) {
-    return true;
+  // Agar qidiruv sof raqam bo'lsa (masalan "5215" yoki "4412"):
+  // FAQAT ushbu raqamlar bilan TUGAGAN (endsWith) karta chiqsin, o'rtasida qatnashgan emas!
+  if (qDigits.length > 0 && qTrim === qDigits) {
+    return numDigits.endsWith(qDigits);
   }
-  if (numRaw.toLowerCase().includes(qTrim)) {
-    return true;
+
+  // Agar bo'shliqlar bilan kiritilgan raqamlar bo'lsa (masalan "8600 5215" yoki "5215"):
+  if (qDigits.length >= 4 && !/[a-zа-я]/i.test(qTrim)) {
+    return numDigits.endsWith(qDigits) || numDigits === qDigits;
   }
 
   // Bank nomi (masalan: Kapital Bank, Agrobank, Ipak Yo'li, va h.k.)
@@ -95,9 +98,9 @@ const matchesCardSearch = (card, q) => {
     return true;
   }
 
-  // Telefon raqami
+  // Telefon raqami (agar 7 tadan ko'p raqam terilgan bo'lsa)
   const phoneDigits = String(card.cardHolderPhone || '').replace(/\D/g, '');
-  if (qDigits.length >= 3 && phoneDigits.includes(qDigits)) {
+  if (qDigits.length >= 7 && phoneDigits.includes(qDigits)) {
     return true;
   }
   if (String(card.cardHolderPhone || '').toLowerCase().includes(qTrim)) {
@@ -214,7 +217,7 @@ export default function Cards() {
     try {
       await api.patch(`/cards/${card._id}/received`, { amount });
       setAmounts((s) => ({ ...s, [card._id]: '' }));
-      fetchCards();
+      await Promise.all([fetchCards(), fetchTakenCards()]);
     } catch (err) {
       alert(err.response?.data?.message || 'Summani qo\'shishda xatolik');
     }
@@ -279,23 +282,23 @@ export default function Cards() {
     );
   }, [cards, selectedDepartment]);
 
-  // To'g'ridan-to'g'ri qidiruv bo'yicha faol kartalar (oxirgi 4 ta raqam, bank, egasi va h.k.)
+  // To'g'ridan-to'g'ri qidiruv va ro'yxat bo'yicha faol kartalar
   const directSearchCards = useMemo(() => {
-    const q = searchQuery.trim();
-    if (!q) return [];
     const pool = selectedDepartment === 'all'
       ? cards.filter((c) => !c.taken)
       : departmentFilteredCards.filter((c) => !c.taken);
+    const q = searchQuery.trim();
+    if (!q) return pool;
     return pool.filter((c) => matchesCardSearch(c, q));
   }, [cards, departmentFilteredCards, searchQuery, selectedDepartment]);
 
   // To'g'ridan-to'g'ri qidiruv bo'yicha limit kartalar
   const directLimitSearchCards = useMemo(() => {
-    const q = limitSearchQuery.trim();
-    if (!q) return [];
     const pool = selectedDepartment === 'all'
-      ? cards.filter((c) => !c.taken && c.status === 'LIMIT_REACHED')
-      : departmentFilteredCards.filter((c) => !c.taken && c.status === 'LIMIT_REACHED');
+      ? cards.filter((c) => c.status === 'LIMIT_REACHED')
+      : departmentFilteredCards.filter((c) => c.status === 'LIMIT_REACHED');
+    const q = limitSearchQuery.trim();
+    if (!q) return pool;
     return pool.filter((c) => matchesCardSearch(c, q));
   }, [cards, departmentFilteredCards, limitSearchQuery, selectedDepartment]);
 
@@ -356,14 +359,18 @@ export default function Cards() {
     return allOwnerGroups.filter((g) => isGroupFullyLimited(g));
   }, [allOwnerGroups, isGroupFullyLimited]);
 
-  // Kartalar sonlari
+  // Kartalar sonlari (Aktiv kartalar + Limit yetgan kartalar = Barcha kartalar)
   const activeCardsCount = useMemo(() => {
-    return rawActiveGroups.reduce((sum, g) => sum + g.cards.length, 0);
-  }, [rawActiveGroups]);
+    return departmentFilteredCards.filter((c) => !c.taken && c.status === 'ACTIVE').length;
+  }, [departmentFilteredCards]);
 
   const limitCardsCount = useMemo(() => {
-    return rawLimitGroups.reduce((sum, g) => sum + g.cards.length, 0);
-  }, [rawLimitGroups]);
+    return departmentFilteredCards.filter((c) => c.status === 'LIMIT_REACHED').length;
+  }, [departmentFilteredCards]);
+
+  const totalCardsCount = useMemo(() => {
+    return activeCardsCount + limitCardsCount;
+  }, [activeCardsCount, limitCardsCount]);
 
   const unassignedDeptCount = useMemo(() => {
     return cards.filter((c) => !c.taken && !c.department).length;
@@ -543,7 +550,7 @@ export default function Cards() {
     if (!window.confirm('Bu kartani qayta faollashtirishni xohlaysizmi? Qabul qilingan summa nolga tushiriladi.')) return;
     try {
       await api.patch(`/cards/${id}/reactivate`);
-      fetchCards();
+      await Promise.all([fetchCards(), fetchTakenCards()]);
     } catch (err) {
       console.error(err);
     }
@@ -560,7 +567,7 @@ export default function Cards() {
     }
     try {
       await Promise.all(group.cards.map((c) => api.patch(`/cards/${c._id}/reactivate`)));
-      fetchCards();
+      await Promise.all([fetchCards(), fetchTakenCards()]);
       handleBackToOwners();
     } catch (err) {
       console.error(err);
@@ -791,7 +798,7 @@ export default function Cards() {
                     }
                     setActivePage(1);
                   }}
-                  placeholder="Oxirgi 4ta raqam (masalan 4412), bank nomi (Kapital)..."
+                  placeholder="Oxirgi 4ta raqam (masalan 5215), bank nomi (Kapital)..."
                   className="w-full border border-gray-300 rounded-lg pl-9 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
@@ -807,6 +814,22 @@ export default function Cards() {
                     ✕
                   </button>
                 )}
+              </div>
+
+              {/* Barcha kartalar to'g'ri hisoblagichi: Aktiv + Limit yetgan = Barcha */}
+              <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between text-xs flex-wrap gap-2">
+                <span className="font-bold text-gray-800">
+                  Barcha kartalar: <span className="text-blue-600 font-extrabold text-sm">{totalCardsCount}</span> ta
+                </span>
+                <div className="flex items-center gap-1.5 font-medium">
+                  <span className="text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
+                    Aktiv: <strong>{activeCardsCount}</strong>
+                  </span>
+                  <span className="text-gray-400 font-bold">+</span>
+                  <span className="text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                    Limit yetgan: <strong>{limitCardsCount}</strong>
+                  </span>
+                </div>
               </div>
             </div>
             <div className="bg-white rounded-xl shadow p-4">
@@ -835,64 +858,74 @@ export default function Cards() {
             <div className="bg-white rounded-xl shadow p-4">
               <p className="text-sm font-medium text-gray-700 mb-2">Statistika</p>
               <div className="space-y-1 text-sm text-gray-600">
-                <div>Aktiv kartalar: <span className="font-semibold text-gray-900">{activeCardsCount}</span></div>
+                <div>Barcha kartalar: <span className="font-bold text-blue-600">{totalCardsCount} ta</span> ({activeCardsCount} aktiv + {limitCardsCount} limit)</div>
                 <div>Guruhlar: <span className="font-semibold text-gray-900">{ownerCount}</span></div>
                 <div>Adminsiz kartalar: <span className="font-semibold text-gray-900">{unassignedCount}</span></div>
               </div>
             </div>
           </div>
 
-          {/* QIDIRUV NATIJALARI: AGAR QIDIRUV KIRITILGAN BO'LSA, KARTALAR TO'G'RIDAN-TO'G'RI CHIQADI */}
-          {searchQuery.trim() && (
+          {/* KO'RINISH TANLASH VA KARTALAR RO'YXATI / EGALAR GURUHI */}
+          {!selectedOwner && (
             <div className="space-y-4 mb-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-blue-700 font-bold text-sm">🔍 Qidiruv natijasi:</span>
+                    <span className="text-blue-700 font-bold text-sm">
+                      {searchQuery.trim() ? '🔍 Qidiruv natijasi:' : '📋 Kartalar ro\'yxati:'}
+                    </span>
                     <span className="text-gray-900 text-sm font-medium">
-                      "{searchQuery}" so'rovi bo'yicha <strong>{directSearchCards.length}</strong> ta karta topildi
+                      {searchQuery.trim()
+                        ? `"${searchQuery}" so'rovi bo'yicha ${directSearchCards.length} ta karta topildi`
+                        : `Barcha faol kartalar (${directSearchCards.length} ta)`}
                     </span>
                   </div>
-                  <p className="text-xs text-blue-600 mt-0.5">
-                    Kartaning oxirgi raqamlari, bank nomi (Kapital Bank va h.k.) yoki egasi bo'yicha topilgan natijalar
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {searchQuery.trim()
+                      ? "Karta raqamining oxirgi raqamlari, bank nomi yoki egasi bo'yicha natijalar"
+                      : "Qidiruv maydoniga oxirgi 4 ta raqamni yozsangiz (masalan 5215), faqat shu raqam bilan tugagan kartalar chiqadi"}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="flex bg-white rounded-xl p-1 border border-blue-200 shadow-sm text-xs font-semibold">
+                  <div className="flex bg-gray-100 rounded-xl p-1 border border-gray-200 text-xs font-semibold">
                     <button
                       type="button"
                       onClick={() => setActiveSearchView('cards')}
                       className={`px-3 py-1.5 rounded-lg transition-colors ${
-                        activeSearchView === 'cards' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:text-gray-900'
+                        activeSearchView === 'cards' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
                       }`}
                     >
-                      Kartalar ({directSearchCards.length})
+                      Barcha kartalar ({directSearchCards.length})
                     </button>
                     <button
                       type="button"
                       onClick={() => setActiveSearchView('owners')}
                       className={`px-3 py-1.5 rounded-lg transition-colors ${
-                        activeSearchView === 'owners' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:text-gray-900'
+                        activeSearchView === 'owners' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
                       }`}
                     >
                       Egalar guruhi ({filteredActiveGroups.length})
                     </button>
                   </div>
 
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="px-3 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold transition-colors"
-                  >
-                    Tozalash ✕
-                  </button>
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="px-3 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold transition-colors"
+                    >
+                      Tozalash ✕
+                    </button>
+                  )}
                 </div>
               </div>
 
               {activeSearchView === 'cards' && (
                 directSearchCards.length === 0 ? (
                   <div className="bg-white rounded-2xl shadow p-10 text-center text-gray-500">
-                    "{searchQuery}" bo'yicha hech qanday faol karta topilmadi.
+                    {searchQuery.trim()
+                      ? `"${searchQuery}" bo'yicha hech qanday faol karta topilmadi.`
+                      : 'Hozircha faol kartalar mavjud emas.'}
                   </div>
                 ) : (
                   <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
@@ -1021,8 +1054,8 @@ export default function Cards() {
             </div>
           )}
 
-          {/* Normal holat (qidiruvsiz yoki egasini ko'rish rejimi) */}
-          {!selectedOwner && (!searchQuery.trim() || activeSearchView === 'owners') && (
+          {/* Egalar guruhi ko'rinishi */}
+          {!selectedOwner && activeSearchView === 'owners' && (
             <>
               <div className="flex items-center justify-between mb-4">
                 <p className="text-sm text-gray-600">
@@ -1994,18 +2027,25 @@ export default function Cards() {
                   <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Sana</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Vaqt</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Balans</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Holat</th>
+                  <th className="text-right px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Amallar (Summa qo'shish)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredTakenCards.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-3 py-10 text-center text-gray-400 text-sm">
+                    <td colSpan={13} className="px-3 py-10 text-center text-gray-400 text-sm">
                       {takenCards.length === 0 ? 'Hali hech qanday karta olinmagan.' : 'Tanlangan vaqt oralig\'ida karta topilmadi.'}
                     </td>
                   </tr>
                 ) : (
                   filteredTakenCards.map((card, index) => (
-                    <tr key={card._id} className="hover:bg-gray-50">
+                    <tr
+                      key={card._id}
+                      className={`transition-colors ${
+                        card.status === 'LIMIT_REACHED' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'
+                      }`}
+                    >
                       <td className="px-3 py-3 text-gray-400">{index + 1}</td>
                       <td className="px-3 py-3 text-gray-900 font-bold">{card.bankName || "Bank kiritilmagan"}</td>
                       <td className="px-3 py-3">
@@ -2030,10 +2070,43 @@ export default function Cards() {
                         </span>
                       </td>
                       <td className="px-3 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
-                      <td className="px-3 py-3 text-indigo-700">{card.takenBy?.username || '-'}</td>
+                      <td className="px-3 py-3 text-indigo-700 font-medium">{card.takenBy?.username || '-'}</td>
                       <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatDate(card.takenAt)}</td>
                       <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatTime(card.takenAt)}</td>
-                      <td className="px-3 py-3 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
+                      <td className="px-3 py-3 text-gray-900 font-semibold">{Number(card.receivedAmount || 0).toLocaleString()}</td>
+                      <td className="px-3 py-3">
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                          card.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
+                          {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          <input
+                            type="number"
+                            min="0"
+                            value={amounts[card._id] ?? ''}
+                            onChange={(e) => handleAmountChange(card._id, e.target.value)}
+                            placeholder="sum"
+                            className="w-20 border border-gray-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500"
+                          />
+                          <button
+                            onClick={() => submitReceived(card)}
+                            className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium px-2.5 py-1 rounded transition-colors whitespace-nowrap shadow-sm"
+                          >
+                            Qo'shish
+                          </button>
+                          {card.status === 'LIMIT_REACHED' && (
+                            <button
+                              onClick={() => handleReactivate(card._id)}
+                              className="text-xs font-medium border border-green-600 bg-white text-green-600 hover:bg-green-600 hover:text-white px-2 py-1 rounded transition-colors whitespace-nowrap"
+                            >
+                              Faollashtirish
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
