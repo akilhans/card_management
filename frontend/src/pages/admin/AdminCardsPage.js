@@ -56,46 +56,67 @@ const formatOwnerKey = (card) => {
   return `${name}||${phone}`;
 };
 
-// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam bilan tugash, bank nomi, egasi, tel va h.k.)
+const getTypeBadgeClass = (type) => {
+  const t = String(type || '').toUpperCase();
+  if (t === 'HUMO') return 'bg-purple-100 text-purple-700';
+  if (t === 'UZCARD') return 'bg-blue-100 text-blue-700';
+  if (t === 'KZT') return 'bg-amber-100 text-amber-800 border border-amber-300';
+  if (t === 'VISA') return 'bg-sky-100 text-sky-700';
+  if (t === 'MASTERCARD') return 'bg-orange-100 text-orange-700';
+  return 'bg-gray-100 text-gray-700';
+};
+
+// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam, bank nomi, egasi, tel, admin, olingan, tur, bo'lim)
 const matchesCardSearch = (card, q) => {
   if (!q) return false;
   const qTrim = q.trim().toLowerCase();
-  const qDigits = qTrim.replace(/\D/g, '');
+  if (!qTrim) return false;
 
+  const qDigits = qTrim.replace(/\D/g, '');
   const numRaw = String(card.number || '');
   const numDigits = numRaw.replace(/\D/g, '');
+  const phoneRaw = String(card.cardHolderPhone || '');
+  const phoneDigits = phoneRaw.replace(/\D/g, '');
 
-  // Agar qidiruv sof raqam bo'lsa (masalan "5215" yoki "4412"):
-  // FAQAT ushbu raqamlar bilan TUGAGAN (endsWith) karta chiqsin, o'rtasida qatnashgan emas!
-  if (qDigits.length > 0 && qTrim === qDigits) {
-    return numDigits.endsWith(qDigits);
+  // 1. Karta raqami bo'yicha:
+  if (qDigits.length > 0) {
+    // Agar 4 yoki undan kam raqam kiritilgan bo'lsa (masalan "7103" yoki "5215"):
+    // Karta raqamining oxiri shu raqamlar bilan tugasa mos keladi
+    if (qDigits.length <= 4) {
+      if (numDigits.endsWith(qDigits)) return true;
+    } else {
+      // 4 tadan ko'p raqam bo'lsa (masalan "8600 5215" yoki to'liq 16 ta raqam):
+      if (numDigits.includes(qDigits) || numDigits.endsWith(qDigits)) return true;
+    }
+  }
+  if (numRaw.toLowerCase().includes(qTrim)) {
+    return true;
   }
 
-  // Agar bo'shliqlar bilan kiritilgan raqamlar bo'lsa (masalan "8600 5215" yoki "5215"):
-  if (qDigits.length >= 4 && !/[a-zа-я]/i.test(qTrim)) {
-    return numDigits.endsWith(qDigits) || numDigits === qDigits;
+  // 2. Telefon raqami bo'yicha (masalan "50 800 38 54" yoki "508003854"):
+  if (qDigits.length >= 3 && phoneDigits.includes(qDigits)) {
+    return true;
+  }
+  if (phoneRaw.toLowerCase().includes(qTrim)) {
+    return true;
   }
 
-  // Bank nomi (masalan: Kapital Bank, Agrobank, Ipak Yo'li, va h.k.)
+  // 3. Bank nomi (masalan: BRB, Kapital Bank, Agrobank, va h.k.)
   if (String(card.bankName || '').toLowerCase().includes(qTrim)) {
     return true;
   }
 
-  // Karta egasining F.I.Sh.
+  // 4. Karta egasining F.I.Sh. (masalan: Xaydaraliyev Javoxir)
   if (String(card.cardHolderName || '').toLowerCase().includes(qTrim)) {
     return true;
   }
 
-  // Telefon raqami (agar 7 tadan ko'p raqam terilgan bo'lsa)
-  const phoneDigits = String(card.cardHolderPhone || '').replace(/\D/g, '');
-  if (qDigits.length >= 7 && phoneDigits.includes(qDigits)) {
-    return true;
-  }
-  if (String(card.cardHolderPhone || '').toLowerCase().includes(qTrim)) {
+  // 5. Karta turi (masalan: KZT, HUMO, UZCARD, VISA, MASTERCARD)
+  if (String(card.type || '').toLowerCase().includes(qTrim)) {
     return true;
   }
 
-  // Bo'lim nomi
+  // 6. Bo'lim nomi
   if (String(card.department?.name || '').toLowerCase().includes(qTrim)) {
     return true;
   }
@@ -109,7 +130,7 @@ export default function AdminCardsPage() {
   const [departments, setDepartments] = useState([]);
   const [selectedDeptId, setSelectedDeptId] = useState('all');
   const [selectedProfileKey, setSelectedProfileKey] = useState(null);
-  const [selectedTypeTab, setSelectedTypeTab] = useState('HUMO'); // 'HUMO' or 'UZCARD'
+  const [selectedTypeTab, setSelectedTypeTab] = useState('ALL');
   const [view, setView] = useState('available'); // 'available' or 'used'
   const [copied, setCopied] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -242,20 +263,32 @@ export default function AdminCardsPage() {
     return allProfileGroups.find((g) => g.key === selectedProfileKey) || null;
   }, [allProfileGroups, selectedProfileKey]);
 
-  // Tanlangan profil ichidagi kartalar (Humo yoki Uzcard)
+  // Tanlangan profil ichidagi barcha turlar
+  const profileCardTypes = useMemo(() => {
+    if (!currentProfile) return [];
+    return Array.from(new Set(currentProfile.cards.map((c) => (c.type || 'UZCARD').toUpperCase())));
+  }, [currentProfile]);
+
+  // Tanlangan profil ichidagi kartalar
   const profileCardsByType = useMemo(() => {
     if (!currentProfile) return [];
-    return currentProfile.cards.filter((c) => c.type === selectedTypeTab);
+    if (selectedTypeTab === 'ALL') return currentProfile.cards;
+    return currentProfile.cards.filter((c) => (c.type || 'UZCARD').toUpperCase() === selectedTypeTab);
   }, [currentProfile, selectedTypeTab]);
 
   const handleSelectProfile = (group) => {
     setSelectedProfileKey(group.key);
-    const hasHumo = group.cards.some((c) => c.type === 'HUMO');
-    setSelectedTypeTab(hasHumo ? 'HUMO' : 'UZCARD');
+    const types = Array.from(new Set((group.cards || []).map((c) => (c.type || 'UZCARD').toUpperCase())));
+    if (types.length === 1) {
+      setSelectedTypeTab(types[0]);
+    } else {
+      setSelectedTypeTab('ALL');
+    }
   };
 
   const handleBackToProfiles = () => {
     setSelectedProfileKey(null);
+    setSelectedTypeTab('ALL');
   };
 
   // Ishlatilgan kartalar filtrlash
@@ -495,9 +528,7 @@ export default function AdminCardsPage() {
                           <span className="text-sm font-bold text-gray-900">
                             {card.bankName || "Bank kiritilmagan"}
                           </span>
-                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                            card.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                          }`}>
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getTypeBadgeClass(card.type)}`}>
                             {card.type}
                           </span>
                         </div>
@@ -594,9 +625,6 @@ export default function AdminCardsPage() {
                 </div>
               ) : (
                 profileGroups.map((group) => {
-                  const humoCount = group.cards.filter((c) => c.type === 'HUMO').length;
-                  const uzcardCount = group.cards.filter((c) => c.type === 'UZCARD').length;
-
                   return (
                     <div
                       key={group.key}
@@ -619,16 +647,14 @@ export default function AdminCardsPage() {
                         </div>
 
                         <div className="flex items-center gap-1.5 flex-wrap my-3">
-                          {humoCount > 0 && (
-                            <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-purple-100 text-purple-700">
-                              HUMO: {humoCount}
-                            </span>
-                          )}
-                          {uzcardCount > 0 && (
-                            <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-100 text-blue-700">
-                              UZCARD: {uzcardCount}
-                            </span>
-                          )}
+                          {Array.from(new Set(group.cards.map((c) => (c.type || 'UZCARD').toUpperCase()))).map((t) => {
+                            const cnt = group.cards.filter((c) => (c.type || 'UZCARD').toUpperCase() === t).length;
+                            return (
+                              <span key={t} className={`px-2.5 py-1 text-xs font-semibold rounded-lg ${getTypeBadgeClass(t)}`}>
+                                {t}: {cnt}
+                              </span>
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -644,7 +670,7 @@ export default function AdminCardsPage() {
           )}
 
           {/* 2-QADAM: TANLANGAN PROFIL ICHIDAGI KARTALAR */}
-          {currentProfile && !searchQuery.trim() && (
+          {currentProfile && (
             <div className="space-y-6">
               {/* Profil tepa sarlavhasi va orqaga tugmasi */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
@@ -674,47 +700,60 @@ export default function AdminCardsPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">Mavjud kartalar:</span>
-                    <span className="text-sm font-bold text-gray-800">
-                      {currentProfile.cards.length} ta
-                    </span>
+                  <div className="flex items-center gap-3">
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-colors"
+                      >
+                        "{searchQuery}" qidiruvini tozalash ✕
+                      </button>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">Mavjud kartalar:</span>
+                      <span className="text-sm font-bold text-gray-800">
+                        {currentProfile.cards.length} ta
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Profil ichidagi Humo va Uzcard tablari */}
-                <div className="flex gap-3 mt-6 border-b border-gray-200">
+                {/* Profil ichidagi Humo, Uzcard, KZT va boshqa tur tablari */}
+                <div className="flex gap-3 mt-6 border-b border-gray-200 overflow-x-auto py-1">
                   <button
-                    onClick={() => setSelectedTypeTab('HUMO')}
-                    className={`px-5 py-3 font-semibold border-b-2 text-sm transition-colors flex items-center gap-2 ${
-                      selectedTypeTab === 'HUMO'
-                        ? 'border-purple-600 text-purple-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-800'
-                    }`}
-                  >
-                    <span>HUMO</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      selectedTypeTab === 'HUMO' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {currentProfile.cards.filter((c) => c.type === 'HUMO').length}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => setSelectedTypeTab('UZCARD')}
-                    className={`px-5 py-3 font-semibold border-b-2 text-sm transition-colors flex items-center gap-2 ${
-                      selectedTypeTab === 'UZCARD'
+                    onClick={() => setSelectedTypeTab('ALL')}
+                    className={`px-5 py-3 font-semibold border-b-2 text-sm transition-colors whitespace-nowrap flex items-center gap-2 ${
+                      selectedTypeTab === 'ALL'
                         ? 'border-blue-600 text-blue-600'
                         : 'border-transparent text-gray-500 hover:text-gray-800'
                     }`}
                   >
-                    <span>UZCARD</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      selectedTypeTab === 'UZCARD' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {currentProfile.cards.filter((c) => c.type === 'UZCARD').length}
+                    <span>Barchasi</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-bold">
+                      {currentProfile.cards.length}
                     </span>
                   </button>
+
+                  {profileCardTypes.map((t) => {
+                    const count = currentProfile.cards.filter((c) => (c.type || 'UZCARD').toUpperCase() === t).length;
+                    const isSelected = selectedTypeTab === t;
+                    return (
+                      <button
+                        key={t}
+                        onClick={() => setSelectedTypeTab(t)}
+                        className={`px-5 py-3 font-semibold border-b-2 text-sm transition-colors whitespace-nowrap flex items-center gap-2 ${
+                          isSelected
+                            ? 'border-blue-600 text-blue-600'
+                            : 'border-transparent text-gray-500 hover:text-gray-800'
+                        }`}
+                      >
+                        <span>{t}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${getTypeBadgeClass(t)}`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -735,9 +774,7 @@ export default function AdminCardsPage() {
                           <span className="text-sm font-bold text-gray-900">
                             {card.bankName || "Bank kiritilmagan"}
                           </span>
-                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                            card.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                          }`}>
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getTypeBadgeClass(card.type)}`}>
                             {card.type}
                           </span>
                         </div>

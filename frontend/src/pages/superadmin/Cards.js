@@ -68,51 +68,77 @@ const formatCardNumber = (number) => {
     .trim();
 };
 
-// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam bilan tugash, bank nomi, egasi, tel, admin, bo'lim)
+const getTypeBadgeClass = (type) => {
+  const t = String(type || '').toUpperCase();
+  if (t === 'HUMO') return 'bg-purple-100 text-purple-700';
+  if (t === 'UZCARD') return 'bg-blue-100 text-blue-700';
+  if (t === 'KZT') return 'bg-amber-100 text-amber-800 border border-amber-300';
+  if (t === 'VISA') return 'bg-sky-100 text-sky-700';
+  if (t === 'MASTERCARD') return 'bg-orange-100 text-orange-700';
+  return 'bg-gray-100 text-gray-700';
+};
+
+// Qidiruv mosligini tekshirish (oxirgi 4 ta raqam, bank nomi, egasi, tel, admin, olingan, tur, bo'lim)
 const matchesCardSearch = (card, q) => {
   if (!q) return false;
   const qTrim = q.trim().toLowerCase();
-  const qDigits = qTrim.replace(/\D/g, '');
+  if (!qTrim) return false;
 
+  const qDigits = qTrim.replace(/\D/g, '');
   const numRaw = String(card.number || '');
   const numDigits = numRaw.replace(/\D/g, '');
+  const phoneRaw = String(card.cardHolderPhone || '');
+  const phoneDigits = phoneRaw.replace(/\D/g, '');
 
-  // Agar qidiruv sof raqam bo'lsa (masalan "5215" yoki "4412"):
-  // FAQAT ushbu raqamlar bilan TUGAGAN (endsWith) karta chiqsin, o'rtasida qatnashgan emas!
-  if (qDigits.length > 0 && qTrim === qDigits) {
-    return numDigits.endsWith(qDigits);
+  // 1. Karta raqami bo'yicha:
+  if (qDigits.length > 0) {
+    // Agar 4 yoki undan kam raqam kiritilgan bo'lsa (masalan "7103" yoki "5215"):
+    // Karta raqamining oxiri shu raqamlar bilan tugasa mos keladi
+    if (qDigits.length <= 4) {
+      if (numDigits.endsWith(qDigits)) return true;
+    } else {
+      // 4 tadan ko'p raqam bo'lsa (masalan "8600 5215" yoki to'liq 16 ta raqam):
+      if (numDigits.includes(qDigits) || numDigits.endsWith(qDigits)) return true;
+    }
+  }
+  if (numRaw.toLowerCase().includes(qTrim)) {
+    return true;
   }
 
-  // Agar bo'shliqlar bilan kiritilgan raqamlar bo'lsa (masalan "8600 5215" yoki "5215"):
-  if (qDigits.length >= 4 && !/[a-zа-я]/i.test(qTrim)) {
-    return numDigits.endsWith(qDigits) || numDigits === qDigits;
+  // 2. Telefon raqami bo'yicha (masalan "50 800 38 54" yoki "508003854"):
+  if (qDigits.length >= 3 && phoneDigits.includes(qDigits)) {
+    return true;
+  }
+  if (phoneRaw.toLowerCase().includes(qTrim)) {
+    return true;
   }
 
-  // Bank nomi (masalan: Kapital Bank, Agrobank, Ipak Yo'li, va h.k.)
+  // 3. Bank nomi (masalan: BRB, Kapital Bank, Agrobank, va h.k.)
   if (String(card.bankName || '').toLowerCase().includes(qTrim)) {
     return true;
   }
 
-  // Karta egasining F.I.Sh.
+  // 4. Karta egasining F.I.Sh. (masalan: Xaydaraliyev Javoxir)
   if (String(card.cardHolderName || '').toLowerCase().includes(qTrim)) {
     return true;
   }
 
-  // Telefon raqami (agar 7 tadan ko'p raqam terilgan bo'lsa)
-  const phoneDigits = String(card.cardHolderPhone || '').replace(/\D/g, '');
-  if (qDigits.length >= 7 && phoneDigits.includes(qDigits)) {
-    return true;
-  }
-  if (String(card.cardHolderPhone || '').toLowerCase().includes(qTrim)) {
+  // 5. Karta turi (masalan: KZT, HUMO, UZCARD, VISA, MASTERCARD)
+  if (String(card.type || '').toLowerCase().includes(qTrim)) {
     return true;
   }
 
-  // Admin username
+  // 6. Tayinlangan admin username (masalan: Ahmed)
   if (String(card.assignedAdmin?.username || '').toLowerCase().includes(qTrim)) {
     return true;
   }
 
-  // Bo'lim nomi
+  // 7. Olingan admin username
+  if (String(card.takenBy?.username || '').toLowerCase().includes(qTrim)) {
+    return true;
+  }
+
+  // 8. Bo'lim nomi
   if (String(card.department?.name || '').toLowerCase().includes(qTrim)) {
     return true;
   }
@@ -138,7 +164,7 @@ export default function Cards() {
   const [adminAssignHumo, setAdminAssignHumo] = useState('');
   const [adminAssignUzcard, setAdminAssignUzcard] = useState('');
   const [selectedGroupKey, setSelectedGroupKey] = useState(null);
-  const [selectedTypeTab, setSelectedTypeTab] = useState('HUMO');
+  const [selectedTypeTab, setSelectedTypeTab] = useState('ALL');
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -284,22 +310,26 @@ export default function Cards() {
 
   // To'g'ridan-to'g'ri qidiruv va ro'yxat bo'yicha faol kartalar
   const directSearchCards = useMemo(() => {
-    const pool = selectedDepartment === 'all'
-      ? cards.filter((c) => !c.taken)
-      : departmentFilteredCards.filter((c) => !c.taken);
     const q = searchQuery.trim();
-    if (!q) return pool;
-    return pool.filter((c) => matchesCardSearch(c, q));
+    if (!q) {
+      return selectedDepartment === 'all'
+        ? cards.filter((c) => !c.taken)
+        : departmentFilteredCards.filter((c) => !c.taken);
+    }
+    // Qidiruv vaqtida: barcha kartalar ichidan qidiriladi (bo'lim va olinganlikdan qat'i nazar)
+    return cards.filter((c) => matchesCardSearch(c, q));
   }, [cards, departmentFilteredCards, searchQuery, selectedDepartment]);
 
   // To'g'ridan-to'g'ri qidiruv bo'yicha limit kartalar
   const directLimitSearchCards = useMemo(() => {
-    const pool = selectedDepartment === 'all'
-      ? cards.filter((c) => c.status === 'LIMIT_REACHED')
-      : departmentFilteredCards.filter((c) => c.status === 'LIMIT_REACHED');
     const q = limitSearchQuery.trim();
-    if (!q) return pool;
-    return pool.filter((c) => matchesCardSearch(c, q));
+    if (!q) {
+      return selectedDepartment === 'all'
+        ? cards.filter((c) => c.status === 'LIMIT_REACHED')
+        : departmentFilteredCards.filter((c) => c.status === 'LIMIT_REACHED');
+    }
+    // Qidiruv vaqtida: barcha limit kartalardan qidiriladi
+    return cards.filter((c) => c.status === 'LIMIT_REACHED' && matchesCardSearch(c, q));
   }, [cards, departmentFilteredCards, limitSearchQuery, selectedDepartment]);
 
   // Egalari bo'yicha guruhlar
@@ -378,15 +408,16 @@ export default function Cards() {
 
   // Aktiv guruhlar qidiruv va filter
   const filteredActiveGroups = useMemo(() => {
-    return rawActiveGroups.filter((group) => {
+    const q = searchQuery.trim();
+    const sourceGroups = q ? fullOwnerGroups : rawActiveGroups;
+    return sourceGroups.filter((group) => {
       if (statusFilter === 'limit' && !group.cards.some((c) => c.status === 'LIMIT_REACHED')) {
         return false;
       }
-      const q = searchQuery.trim();
       if (!q) return true;
       return group.cards.some((c) => matchesCardSearch(c, q));
     });
-  }, [rawActiveGroups, searchQuery, statusFilter]);
+  }, [rawActiveGroups, fullOwnerGroups, searchQuery, statusFilter]);
 
   // Aktiv guruhlar pagination
   const totalActivePages = Math.ceil(filteredActiveGroups.length / activeItemsPerPage) || 1;
@@ -398,11 +429,12 @@ export default function Cards() {
   // Limit guruhlar qidiruv
   const filteredLimitGroups = useMemo(() => {
     const q = limitSearchQuery.trim();
-    if (!q) return rawLimitGroups;
-    return rawLimitGroups.filter((group) => {
+    const sourceGroups = q ? fullOwnerGroups : rawLimitGroups;
+    return sourceGroups.filter((group) => {
+      if (!q) return true;
       return group.cards.some((c) => matchesCardSearch(c, q));
     });
-  }, [rawLimitGroups, limitSearchQuery]);
+  }, [rawLimitGroups, fullOwnerGroups, limitSearchQuery]);
 
   // Limit guruhlar pagination
   const totalLimitPages = Math.ceil(filteredLimitGroups.length / limitItemsPerPage) || 1;
@@ -414,23 +446,34 @@ export default function Cards() {
   // Tanlangan guruh
   const selectedOwner = useMemo(() => {
     if (!selectedGroupKey) return null;
-    return allOwnerGroups.find((group) => group.key === selectedGroupKey) || null;
-  }, [allOwnerGroups, selectedGroupKey]);
+    return fullOwnerGroups.find((group) => group.key === selectedGroupKey) || null;
+  }, [fullOwnerGroups, selectedGroupKey]);
+
+  // Guruhdagi barcha turlar (HUMO, UZCARD, KZT, VISA va boshqalar)
+  const ownerTypes = useMemo(() => {
+    if (!selectedOwner) return [];
+    return Array.from(new Set(selectedOwner.cards.map((c) => (c.type || 'UZCARD').toUpperCase())));
+  }, [selectedOwner]);
 
   const selectedGroupCards = useMemo(() => {
     if (!selectedOwner) return [];
-    return selectedOwner.cards.filter((c) => c.type === selectedTypeTab);
+    if (selectedTypeTab === 'ALL') return selectedOwner.cards;
+    return selectedOwner.cards.filter((c) => (c.type || 'UZCARD').toUpperCase() === selectedTypeTab);
   }, [selectedOwner, selectedTypeTab]);
 
   const handleSelectOwner = (group) => {
     setSelectedGroupKey(group.key);
-    const hasHumo = group.cards.some((c) => c.type === 'HUMO');
-    setSelectedTypeTab(hasHumo ? 'HUMO' : 'UZCARD');
+    const types = Array.from(new Set((group.cards || []).map((c) => (c.type || 'UZCARD').toUpperCase())));
+    if (types.length === 1) {
+      setSelectedTypeTab(types[0]);
+    } else {
+      setSelectedTypeTab('ALL');
+    }
   };
 
   const handleBackToOwners = () => {
     setSelectedGroupKey(null);
-    setSelectedTypeTab('HUMO');
+    setSelectedTypeTab('ALL');
   };
 
   const handleOpenCreate = () => {
@@ -972,7 +1015,7 @@ export default function Cards() {
                               <div className="font-semibold text-gray-800">{card.cardHolderName}</div>
                               <button
                                 onClick={() => {
-                                  const g = allOwnerGroups.find((x) => x.key === formatOwnerKey(card));
+                                  const g = fullOwnerGroups.find((x) => x.key === formatOwnerKey(card));
                                   if (g) {
                                     setSearchQuery('');
                                     handleSelectOwner(g);
@@ -989,9 +1032,7 @@ export default function Cards() {
                               </span>
                             </td>
                             <td className="px-4 py-3">
-                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                card.type === 'HUMO' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                              }`}>
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getTypeBadgeClass(card.type)}`}>
                                 {card.type}
                               </span>
                             </td>
@@ -1000,9 +1041,17 @@ export default function Cards() {
                             <td className="px-4 py-3 text-indigo-700 font-medium">{card.assignedAdmin?.username || 'Tayinlanmagan'}</td>
                             <td className="px-4 py-3">
                               <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                card.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                card.taken
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : card.status === 'ACTIVE'
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-red-100 text-red-700'
                               }`}>
-                                {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
+                                {card.taken
+                                  ? `Olingan (${card.takenBy?.username || 'Admin'})`
+                                  : card.status === 'ACTIVE'
+                                  ? 'Faol'
+                                  : 'Limit yetdi'}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-gray-700 font-medium">{Number(card.receivedAmount || 0).toLocaleString()}</td>
@@ -1137,16 +1186,14 @@ export default function Cards() {
                         </div>
 
                         <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-gray-100">
-                          {humoCount > 0 && (
-                            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-100 text-purple-700">
-                              HUMO {humoCount}
-                            </span>
-                          )}
-                          {uzcardCount > 0 && (
-                            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-700">
-                              UZCARD {uzcardCount}
-                            </span>
-                          )}
+                          {Array.from(new Set(group.cards.map((c) => (c.type || 'UZCARD').toUpperCase()))).map((t) => {
+                            const cnt = group.cards.filter((c) => (c.type || 'UZCARD').toUpperCase() === t).length;
+                            return (
+                              <span key={t} className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getTypeBadgeClass(t)}`}>
+                                {t} {cnt}
+                              </span>
+                            );
+                          })}
                         </div>
                       </button>
                     );
@@ -1207,7 +1254,7 @@ export default function Cards() {
             </>
           )}
 
-          {selectedOwner && !searchQuery.trim() && (
+          {selectedOwner && (
             <div className="space-y-4 mb-6">
               <div className="flex flex-col gap-4 bg-white rounded-xl shadow p-4 lg:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -1223,12 +1270,14 @@ export default function Cards() {
                     >
                       Orqaga
                     </button>
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 transition-colors"
-                    >
-                      Qidiruvni tozalash
-                    </button>
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 transition-colors"
+                      >
+                        Qidiruvni tozalash
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1266,7 +1315,7 @@ export default function Cards() {
                         onChange={(e) => setAdminAssignAll(e.target.value)}
                         className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white min-w-[160px]"
                       >
-                        <option value="">Admin: {selectedTypeTab}</option>
+                        <option value="">Admin: {selectedTypeTab === 'ALL' ? 'Barcha kartalar' : selectedTypeTab}</option>
                         {admins.map((a) => (
                           <option key={a._id} value={a._id}>{a.username}</option>
                         ))}
@@ -1275,7 +1324,7 @@ export default function Cards() {
                         onClick={() => assignAllTo(adminAssignAll)}
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm whitespace-nowrap font-medium"
                       >
-                        {selectedTypeTab} ga tayinlash
+                        {selectedTypeTab === 'ALL' ? 'Barchasiga' : selectedTypeTab + ' ga'} tayinlash
                       </button>
                     </div>
 
@@ -1310,32 +1359,38 @@ export default function Cards() {
                   </div>
                 </div>
 
-                {/* Sub-tabs: Humo / Uzcard */}
-                <div className="flex gap-2 border-b border-gray-200">
-                  {selectedOwner.cards.some((c) => c.type === 'HUMO') && (
-                    <button
-                      onClick={() => setSelectedTypeTab('HUMO')}
-                      className={`px-4 py-2.5 font-medium border-b-2 transition-colors ${
-                        selectedTypeTab === 'HUMO'
-                          ? 'border-purple-600 text-purple-600'
-                          : 'border-transparent text-gray-600 hover:text-gray-800'
-                      }`}
-                    >
-                      HUMO ({selectedOwner.cards.filter((c) => c.type === 'HUMO').length})
-                    </button>
-                  )}
-                  {selectedOwner.cards.some((c) => c.type === 'UZCARD') && (
-                    <button
-                      onClick={() => setSelectedTypeTab('UZCARD')}
-                      className={`px-4 py-2.5 font-medium border-b-2 transition-colors ${
-                        selectedTypeTab === 'UZCARD'
-                          ? 'border-blue-600 text-blue-600'
-                          : 'border-transparent text-gray-600 hover:text-gray-800'
-                      }`}
-                    >
-                      UZCARD ({selectedOwner.cards.filter((c) => c.type === 'UZCARD').length})
-                    </button>
-                  )}
+                {/* Sub-tabs: Barchasi / Humo / Uzcard / KZT / ... */}
+                <div className="flex gap-2 border-b border-gray-200 overflow-x-auto py-1">
+                  <button
+                    onClick={() => setSelectedTypeTab('ALL')}
+                    className={`px-4 py-2.5 font-medium border-b-2 text-sm transition-colors whitespace-nowrap ${
+                      selectedTypeTab === 'ALL'
+                        ? 'border-blue-600 text-blue-600 font-bold'
+                        : 'border-transparent text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    Barchasi ({selectedOwner.cards.length})
+                  </button>
+                  {ownerTypes.map((t) => {
+                    const count = selectedOwner.cards.filter((c) => (c.type || 'UZCARD').toUpperCase() === t).length;
+                    const isSelected = selectedTypeTab === t;
+                    return (
+                      <button
+                        key={t}
+                        onClick={() => setSelectedTypeTab(t)}
+                        className={`px-4 py-2.5 font-medium border-b-2 text-sm transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'border-blue-600 text-blue-600 font-bold'
+                            : 'border-transparent text-gray-600 hover:text-gray-800'
+                        }`}
+                      >
+                        <span>{t}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${getTypeBadgeClass(t)}`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1347,6 +1402,7 @@ export default function Cards() {
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bo'lim</th>
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Tur</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
@@ -1367,7 +1423,7 @@ export default function Cards() {
                         <td className="px-3 py-3 text-gray-900 font-bold">{card.bankName || "Bank kiritilmagan"}</td>
                         <td className="px-3 py-3 font-mono text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1">
-                            <span>{card.number}</span>
+                            <span>{formatCardNumber(card.number)}</span>
                             <button
                               onClick={() => handleCopy(card.number, card._id)}
                               className="text-xs text-gray-500 hover:text-gray-700"
@@ -1382,14 +1438,27 @@ export default function Cards() {
                             {card.department?.name || 'Bo\'limsiz'}
                           </span>
                         </td>
+                        <td className="px-3 py-3">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getTypeBadgeClass(card.type)}`}>
+                            {card.type}
+                          </span>
+                        </td>
                         <td className="px-3 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
                         <td className="px-3 py-3 text-gray-700 whitespace-nowrap">{formatPhone(card.cardHolderPhone || '')}</td>
                         <td className="px-3 py-3 text-indigo-700">{card.assignedAdmin?.username || 'Hech kimga tayinlanmagan'}</td>
                         <td className="px-3 py-3">
                           <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                            card.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            card.taken
+                              ? 'bg-indigo-100 text-indigo-700'
+                              : card.status === 'ACTIVE'
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-red-100 text-red-700'
                           }`}>
-                            {card.status === 'ACTIVE' ? 'Faol' : 'Limit yetdi'}
+                            {card.taken
+                              ? `Olingan (${card.takenBy?.username || 'Admin'})`
+                              : card.status === 'ACTIVE'
+                              ? 'Faol'
+                              : 'Limit yetdi'}
                           </span>
                         </td>
                         <td className="px-3 py-3 text-gray-700">{Number(card.receivedAmount || 0).toLocaleString()}</td>
@@ -1436,7 +1505,7 @@ export default function Cards() {
                     ))}
                     {selectedGroupCards.length === 0 && (
                       <tr>
-                        <td colSpan={10} className="px-3 py-10 text-center text-gray-400 text-sm">
+                        <td colSpan={11} className="px-3 py-10 text-center text-gray-400 text-sm">
                           Bu turdagi kartalar yo‘q.
                         </td>
                       </tr>
@@ -1698,16 +1767,14 @@ export default function Cards() {
                           </div>
 
                           <div className="flex items-center gap-1.5 flex-wrap mb-4">
-                            {humoCount > 0 && (
-                              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-100 text-purple-700">
-                                HUMO {humoCount}
-                              </span>
-                            )}
-                            {uzcardCount > 0 && (
-                              <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-700">
-                                UZCARD {uzcardCount}
-                              </span>
-                            )}
+                            {Array.from(new Set(group.cards.map((c) => (c.type || 'UZCARD').toUpperCase()))).map((t) => {
+                              const cnt = group.cards.filter((c) => (c.type || 'UZCARD').toUpperCase() === t).length;
+                              return (
+                                <span key={t} className={`px-2 py-0.5 text-xs font-semibold rounded-full ${getTypeBadgeClass(t)}`}>
+                                  {t} {cnt}
+                                </span>
+                              );
+                            })}
                           </div>
                         </div>
 
@@ -1785,7 +1852,7 @@ export default function Cards() {
             </>
           )}
 
-          {selectedOwner && !limitSearchQuery.trim() && (
+          {selectedOwner && (
             <div className="space-y-4 mb-6">
               <div className="flex flex-col gap-3 bg-white rounded-xl shadow p-4 lg:p-6 border-t-4 border-red-500">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -1806,6 +1873,14 @@ export default function Cards() {
                     >
                       Orqaga
                     </button>
+                    {limitSearchQuery && (
+                      <button
+                        onClick={() => setLimitSearchQuery('')}
+                        className="px-4 py-2 bg-gray-100 rounded-lg text-sm text-gray-700 hover:bg-gray-200 transition-colors"
+                      >
+                        Qidiruvni tozalash
+                      </button>
+                    )}
                     <button
                       onClick={() => handleReactivateAll(selectedOwner)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
@@ -1815,31 +1890,38 @@ export default function Cards() {
                   </div>
                 </div>
 
-                <div className="flex gap-2 border-b border-gray-200">
-                  {selectedOwner.cards.some((c) => c.type === 'HUMO') && (
-                    <button
-                      onClick={() => setSelectedTypeTab('HUMO')}
-                      className={`px-4 py-2.5 font-medium border-b-2 transition-colors ${
-                        selectedTypeTab === 'HUMO'
-                          ? 'border-purple-600 text-purple-600'
-                          : 'border-transparent text-gray-600 hover:text-gray-800'
-                      }`}
-                    >
-                      HUMO ({selectedOwner.cards.filter((c) => c.type === 'HUMO').length})
-                    </button>
-                  )}
-                  {selectedOwner.cards.some((c) => c.type === 'UZCARD') && (
-                    <button
-                      onClick={() => setSelectedTypeTab('UZCARD')}
-                      className={`px-4 py-2.5 font-medium border-b-2 transition-colors ${
-                        selectedTypeTab === 'UZCARD'
-                          ? 'border-blue-600 text-blue-600'
-                          : 'border-transparent text-gray-600 hover:text-gray-800'
-                      }`}
-                    >
-                      UZCARD ({selectedOwner.cards.filter((c) => c.type === 'UZCARD').length})
-                    </button>
-                  )}
+                {/* Sub-tabs: Barchasi / Humo / Uzcard / KZT / ... */}
+                <div className="flex gap-2 border-b border-gray-200 overflow-x-auto py-1">
+                  <button
+                    onClick={() => setSelectedTypeTab('ALL')}
+                    className={`px-4 py-2.5 font-medium border-b-2 text-sm transition-colors whitespace-nowrap ${
+                      selectedTypeTab === 'ALL'
+                        ? 'border-red-600 text-red-600 font-bold'
+                        : 'border-transparent text-gray-600 hover:text-gray-800'
+                    }`}
+                  >
+                    Barchasi ({selectedOwner.cards.length})
+                  </button>
+                  {ownerTypes.map((t) => {
+                    const count = selectedOwner.cards.filter((c) => (c.type || 'UZCARD').toUpperCase() === t).length;
+                    const isSelected = selectedTypeTab === t;
+                    return (
+                      <button
+                        key={t}
+                        onClick={() => setSelectedTypeTab(t)}
+                        className={`px-4 py-2.5 font-medium border-b-2 text-sm transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'border-red-600 text-red-600 font-bold'
+                            : 'border-transparent text-gray-600 hover:text-gray-800'
+                        }`}
+                      >
+                        <span>{t}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${getTypeBadgeClass(t)}`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1851,6 +1933,7 @@ export default function Cards() {
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bank</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Karta raqami</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Bo'lim</th>
+                      <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Tur</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Muddati</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Telefon</th>
                       <th className="text-left px-3 py-3 text-xs font-semibold text-gray-500 uppercase">Admin</th>
@@ -1866,7 +1949,7 @@ export default function Cards() {
                         <td className="px-3 py-3 text-gray-900 font-bold">{card.bankName || "Bank kiritilmagan"}</td>
                         <td className="px-3 py-3 font-mono text-gray-800 whitespace-nowrap">
                           <div className="flex items-center gap-1">
-                            <span>{card.number}</span>
+                            <span>{formatCardNumber(card.number)}</span>
                             <button
                               onClick={() => handleCopy(card.number, card._id)}
                               className="text-xs text-gray-500 hover:text-gray-700"
@@ -1879,6 +1962,11 @@ export default function Cards() {
                         <td className="px-3 py-3">
                           <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 border border-red-200">
                             {card.department?.name || 'Bo\'limsiz'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getTypeBadgeClass(card.type)}`}>
+                            {card.type}
                           </span>
                         </td>
                         <td className="px-3 py-3 font-mono text-gray-700 whitespace-nowrap">{formatExpiry(card.expiryDate)}</td>
@@ -1917,7 +2005,7 @@ export default function Cards() {
                     ))}
                     {selectedGroupCards.length === 0 && (
                       <tr>
-                        <td colSpan={10} className="px-3 py-10 text-center text-gray-400 text-sm">
+                        <td colSpan={11} className="px-3 py-10 text-center text-gray-400 text-sm">
                           Bu turdagi kartalar yo‘q.
                         </td>
                       </tr>
@@ -2190,6 +2278,12 @@ export default function Cards() {
                 >
                   <option value="HUMO">HUMO</option>
                   <option value="UZCARD">UZCARD</option>
+                  <option value="KZT">KZT</option>
+                  <option value="VISA">VISA</option>
+                  <option value="MASTERCARD">MASTERCARD</option>
+                  {form.type && !['HUMO', 'UZCARD', 'KZT', 'VISA', 'MASTERCARD'].includes(form.type) && (
+                    <option value={form.type}>{form.type}</option>
+                  )}
                 </select>
               </div>
               <div>
