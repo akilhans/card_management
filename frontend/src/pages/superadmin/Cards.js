@@ -1135,8 +1135,6 @@ export default function Cards() {
                   </div>
                 ) : (
                   paginatedActiveGroups.map((group) => {
-                    const humoCount = group.cards.filter((c) => c.type === 'HUMO').length;
-                    const uzcardCount = group.cards.filter((c) => c.type === 'UZCARD').length;
                     const reachedCount = group.cards.filter((c) => c.status === 'LIMIT_REACHED').length;
                     const activeCount = group.cards.filter((c) => c.status === 'ACTIVE').length;
 
@@ -1747,9 +1745,6 @@ export default function Cards() {
                   </div>
                 ) : (
                   paginatedLimitGroups.map((group) => {
-                    const humoCount = group.cards.filter((c) => c.type === 'HUMO').length;
-                    const uzcardCount = group.cards.filter((c) => c.type === 'UZCARD').length;
-
                     return (
                       <div
                         key={group.key}
